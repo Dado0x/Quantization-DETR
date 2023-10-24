@@ -150,7 +150,8 @@ class GPTQ:
 
         #torch.cuda.synchronize()
         print('time %.2f' % (time.time() - tick))
-        print('error', torch.sum(Losses).item())
+        error = torch.sum(Losses).item()
+        print('error', error)
 
         if actorder:
             Q = Q[:, invperm]
@@ -160,6 +161,9 @@ class GPTQ:
         self.layer.weight.data = Q.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
         if DEBUG:
             print(torch.sum((self.layer(self.inp1) - self.out1) ** 2))
+
+        return error
+
 
     def free(self):
         if DEBUG:

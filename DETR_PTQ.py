@@ -17,9 +17,9 @@ ROOT = "C:/Users/chave/PycharmProjects/Quantization-DETR/"
 @torch.no_grad()
 def detr_sequential():
 
-    args = argparse.Namespace(nsamples = 10, wbits=4, sym=True, trits=False, percdamp=.01, groupsize=-1, act_order=True, static_groups=True)
+    args = argparse.Namespace(nsamples=1000, wbits=4, sym=True, trits=False, percdamp=.01, groupsize=-1, act_order=True, static_groups=True)
 
-    dev = "cuda"
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
     model = model.eval()
 
@@ -29,35 +29,32 @@ def detr_sequential():
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)
 
     print('Starting ...')
+    print('Transformers inputs')
 
-    
     layers = model.model.encoder.layers + model.model.decoder.layers
 
-    layers[0] = layers[0].to(dev)
-    layers[6] = layers[6].to(dev)
-
-    inps = [None] * args.nsamples
+    inps_encoder = [None] * args.nsamples
     inps_attention_mask = [None] * args.nsamples
     inps_position_embeddings = [None] * args.nsamples
     cache = {'i': 0, "queries": None, "query_position_embeddings": None}
 
-    class Catcher(nn.Module):
+    class CatcherTransformer(nn.Module):
         def __init__(self, module):
             super().__init__()
             self.module = module
         def forward(self, inp, attention_mask, **kwargs):
-            if cache['i'] >= args.nsamples: # Decoder
+            if 'query_position_embeddings' in kwargs.keys():# Decoder
                 cache["queries"] = inp
                 cache['query_position_embeddings'] = kwargs['query_position_embeddings']
                 raise ValueError
-            inps[cache['i']] = inp
-            inps_attention_mask[cache['i']] = attention_mask
-            inps_position_embeddings[cache['i']] = kwargs['position_embeddings']
+            inps_encoder[cache['i']] = inp.cpu()
+            inps_attention_mask[cache['i']] = attention_mask.cpu()
+            inps_position_embeddings[cache['i']] = kwargs['position_embeddings'].cpu()
             cache['i'] += 1
             raise ValueError
-        
+
     ## Encoder
-    layers[0] = Catcher(layers[0])
+    layers[0] = CatcherTransformer(layers[0])
     model.model.encoder.layers[0] = layers[0]
 
     for batch in dataloader:
@@ -69,8 +66,10 @@ def detr_sequential():
     model.model.encoder.layers[0] = layers[0].module
     layers[0] = layers[0].module
 
+    torch.cuda.empty_cache()
+
     ## Decoder
-    layers[6] = Catcher(layers[6])
+    layers[6] = CatcherTransformer(layers[6])
     model.model.decoder.layers[0] = layers[6]
 
     for batch in dataloader:
@@ -81,12 +80,57 @@ def detr_sequential():
 
     model.model.decoder.layers[0] = layers[6].module
     layers[6] = layers[6].module
-   
+
+    model.cpu()
     torch.cuda.empty_cache()
 
+    model.model.backbone.to(dev)
+    model.model.input_projection.to(dev)
+
+    # Add input projection to layers
+    layers.insert(0, model.model.input_projection)
+
+    print('Backbone inputs')
+    # Add backbone to layers
+    layers.insert(0, model.model.backbone)
+    cache['i'] = 0
+    inps_pixel = [None] * args.nsamples
+    inps_pixel_mask = [None] * args.nsamples
+
+    class CatcherBackbone(nn.Module):
+        def __init__(self, module):
+            super().__init__()
+            self.module = module
+        def forward(self, pixel_values, pixel_mask, **kwargs):
+            inps_pixel[cache['i']] = pixel_values.cpu()
+            inps_pixel_mask[cache['i']] = pixel_mask.cpu()
+            cache['i'] += 1
+            raise ValueError
+
+
+    ##Backbone
+    layers[0] = CatcherBackbone(layers[0])
+    model.model.backbone = layers[0]
+
+    for batch in dataloader:
+        try:
+            model(batch[0].to(dev))
+        except ValueError:
+            pass
+
+    model.model.backbone = layers[0].module
+    layers[0] = layers[0].module
+
+    torch.cuda.empty_cache()
+
+    model.model.backbone.cpu()
+    model.model.input_projection.cpu()
+
+    inps = inps_pixel
     outs = [None] * args.nsamples
     inps_encoder_hidden_states = [None] * args.nsamples
 
+    errors = {}
     print('Ready.')
 
     quantizers = {}
@@ -111,39 +155,62 @@ def detr_sequential():
         for name in subset:
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
-            if i >= 6: # Decoder
-                outs[j] = layer(inps[j], encoder_hidden_states=inps_encoder_hidden_states[j], attention_mask=None, position_embeddings=inps_position_embeddings[j], query_position_embeddings=cache['query_position_embeddings'])[0]
-            else:
-                outs[j] = layer(inps[j], attention_mask=inps_attention_mask[j], position_embeddings=inps_position_embeddings[j])[0]
+            if i == 0: # Backbone
+                outs[j] = layer(inps[j].to(dev), inps_pixel_mask[j].to(dev))[0]
+            elif i == 1: # Input projection
+                outs[j] = layer(inps[j].to(dev))
+            elif i >= 8: # Decoder
+                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None, position_embeddings=inps_position_embeddings[j].to(dev), query_position_embeddings=cache['query_position_embeddings'])[0]
+            else: # Encoder
+                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev), position_embeddings=inps_position_embeddings[j].to(dev))[0]
         for h in handles:
             h.remove()
 
         for name in subset:
             print(i, name)
             print('Quantizing ...')
-            gptq[name].fasterquant(
+            error = gptq[name].fasterquant(
                 percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
             )
             quantizers['model.decoder.layers.%d.%s' % (i, name)] = gptq[name].quantizer
             gptq[name].free()
+
+            errors[f"{i}_{name}"] = error
         for j in range(args.nsamples):
-            if i >= 6: # Decoder
-                outs[j] = layer(inps[j], encoder_hidden_states=inps_encoder_hidden_states[j], attention_mask=None, position_embeddings=inps_position_embeddings[j], query_position_embeddings=cache['query_position_embeddings'])[0]
-            else:
-                outs[j] = layer(inps[j], attention_mask=inps_attention_mask[j], position_embeddings=inps_position_embeddings[j])[0]
+            if i == 0:  # Backbone
+                outs[j] = layer(inps[j].to(dev), inps_pixel_mask[j].to(dev))[0]
+            elif i == 1:  # Input projection
+                outs[j] = layer(inps[j].to(dev))
+            elif i >= 8:  # Decoder
+                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None, position_embeddings=inps_position_embeddings[j].to(dev), query_position_embeddings=cache['query_position_embeddings'])[0]
+            else: # Encoder
+                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev), position_embeddings=inps_position_embeddings[j].to(dev))[0]
 
         layers[i] = layer.cpu()
         del layer
         del gptq 
         torch.cuda.empty_cache()
 
-        if i == 5: # Outputs encoder
+        if i == 0: # Outputs backbone
+            for k in range(args.nsamples):
+                outs[k] = outs[k][0][0]
+        if i == 1:
+            outs = inps_encoder
+        if i == 7: # Outputs encoder
             for k in range(args.nsamples):
                 inps_encoder_hidden_states[k] = outs[k].clone()
                 outs[k] = cache['queries']
 
         inps, outs = outs, inps
-    
+
+    print("------------------")
+    for k in errors.keys():
+        print(k, errors[k])
+    print("------------------")
+    for k, v in sorted(errors.items(), key=lambda item: -item[1]):
+        print(k, v)
+    print("------------------")
+
     torch.save(model.state_dict(), ROOT+f"detr_{args.wbits}bits.bin")
     return quantizers
 
