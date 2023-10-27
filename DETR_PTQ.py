@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 from transformers import DetrForObjectDetection
 
-from gptq import *
-from modelutils import *
-from quant import *
+from gptq.gptq import *
+from gptq.modelutils import *
+from gptq.quant import *
 from datasets.coco import build as build_dataset
 
 import argparse
