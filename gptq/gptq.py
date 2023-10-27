@@ -1,14 +1,11 @@
 import math
 import time
 
-import torch
-import torch.nn as nn
 import transformers
 
 from gptq.quant import *
 
-
-DEBUG = False 
+DEBUG = False
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
@@ -148,7 +145,7 @@ class GPTQ:
                 print(torch.sum((self.layer(self.inp1) - self.out1) ** 2))
                 print(torch.sum(Losses))
 
-        #torch.cuda.synchronize()
+        torch.cuda.synchronize()
         print('time %.2f' % (time.time() - tick))
         error = torch.sum(Losses).item()
         print('error', error)

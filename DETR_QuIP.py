@@ -1,17 +1,20 @@
 import argparse
 
+from tqdm import tqdm
 from transformers import DetrForObjectDetection
 
+from QuIP.bal import Balance
+from QuIP.gptq import *
+from QuIP.near import Nearest
+from QuIP.quant import *
 from datasets.coco import build as build_dataset
-from gptq.gptq import *
 from gptq.modelutils import *
-from gptq.quant import *
 
 ROOT = "C:/Users/David/Notebook/Quantization-DETR/"
 
 
 @torch.no_grad()
-def detr_sequential(args, model, dataloader, dev):
+def detr_sequential(model, dataloader, dev, args):
 
     print('Starting ...')
     print('Transformers inputs')
@@ -193,21 +196,47 @@ def detr_sequential(args, model, dataloader, dev):
     print('Ready.')
 
     quantizers = {}
-    for i in range(len(layers)):
+    times = []
+    for i in tqdm(range(len(layers))):
         layer = layers[i].to(dev)
 
         subset = find_layers(layer)
-        gptq = {}
+        quant_method = {}
         for name in subset:
             print(i, name)
-            gptq[name] = GPTQ(subset[name])
-            gptq[name].quantizer = Quantizer()
-            gptq[name].quantizer.configure(
-                args.wbits, perchannel=True, sym=False, mse=False)
+            if args.quant == 'gptq':
+                quant_method[name] = GPTQ(subset[name])
+                quant_method[name].quantizer = Quantizer()
+                quant_method[name].quantizer.configure(args.wbits,
+                                               perchannel=True,
+                                               sym=False,
+                                               qfn=args.qfn,
+                                               mse=False)
+            elif args.quant == 'near':
+                quant_method[name] = Nearest(subset[name])
+                quant_method[name].quantizer = Quantizer()
+                quant_method[name].quantizer.configure(args.wbits,
+                                               perchannel=True,
+                                               sym=False,
+                                               qfn=args.qfn,
+                                               mse=False)
+            elif args.quant in ['allbal','ldlq','ldlqRG','ldlbal_admm']:
+                quant_method[name] = Balance(subset[name])
+                quant_method[name].configure(
+                                    args.quant,
+                                    args.wbits, 
+                                    args.npasses,
+                                    unbiased=args.unbiased)
+                quant_method[name].quantizer = Quantizer()
+                quant_method[name].quantizer.configure(args.wbits,
+                                               perchannel=True,
+                                               sym=False,
+                                               qfn=args.qfn,
+                                               mse=False)
 
         def add_batch(name):
             def tmp(_, inp, out):
-                gptq[name].add_batch(inp[0].data, out.data)
+                quant_method[name].add_batch(inp[0].data, out.data)
             return tmp
         handles = []
         for name in subset:
@@ -225,13 +254,26 @@ def detr_sequential(args, model, dataloader, dev):
             h.remove()
 
         for name in subset:
+            quant_method[name].post_batch()
+
+        for name in subset:
             print(i, name)
             print('Quantizing ...')
-            error = gptq[name].fasterquant(
-                percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
-            )
-            quantizers['model.decoder.layers.%d.%s' % (i, name)] = gptq[name].quantizer
-            gptq[name].free()
+            quant_method[name].preproc(
+                                preproc_gptqH=args.pre_gptqH, percdamp=args.percdamp,
+                                preproc_rescale=args.pre_rescale, 
+                                preproc_proj=args.pre_proj, preproc_proj_extra=args.pre_proj_extra)
+            
+            if args.quant == 'gptq':
+                quant_method[name].fasterquant(groupsize=args.groupsize)
+            elif args.quant in ['allbal','ldlq','ldlqRG','ldlbal_admm']:
+                quant_method[name].fasterquant(lazy_batch=args.lazy_batch)
+            elif args.quant == 'near':
+                quant_method[name].fasterquant()
+
+            times.append(quant_method[name].time)
+            quantizers['model.decoder.layers.%d.%s' % (i, name)] = quant_method[name].quantizer
+            quant_method[name].free()
 
             s = ""
             if i == backbone_idx:
@@ -246,7 +288,7 @@ def detr_sequential(args, model, dataloader, dev):
                 s = f"Decoder_{i-decoder_idx}_{name}"
             else:
                 s = f"Encoder_{i-encoder_idx}_{name}"
-            errors[s] = error
+            errors[s] = quant_method[name].error
 
         for j in range(args.nsamples):
             if i == backbone_idx:  # Backbone
@@ -260,7 +302,7 @@ def detr_sequential(args, model, dataloader, dev):
 
         layers[i] = layer.cpu()
         del layer
-        del gptq 
+        del quant_method
         torch.cuda.empty_cache()
 
         if i == backbone_idx: # Outputs backbone
@@ -289,8 +331,9 @@ def detr_sequential(args, model, dataloader, dev):
         print(k, v)
     print("------------------")
 
-    torch.save(model.state_dict(), ROOT+f"detr_{args.wbits}bits.bin")
-    return quantizers
+    print(f'Total quant time: {sum(times):.2f}s')
+    torch.save(model.state_dict(), ROOT+f"detr_{args.quant}{'_IP' if args.incoh_processing else ''}_{args.wbits}bits.bin")
+    return quantizers, errors
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -324,8 +367,52 @@ if __name__ == '__main__':
     
     parser.add_argument('--static-groups', action='store_false', 
                         help='Whether to use static groups; recommended when using `--actorder` for more efficient inference.')
+
+    parser.add_argument('--pre_gptqH', action='store_true',
+                        help='preprocessing')
+    
+    parser.add_argument('--pre_rescale',action='store_true',
+                        help='preprocessing')
+    
+    parser.add_argument('--pre_proj', action='store_true',
+                        help='preprocessing')
+    
+    parser.add_argument('--pre_proj_extra', type=int,default=0, choices=[0, 1, 2],
+                        help='Extra options to control pre_proj step.')
+    
+    parser.add_argument('--qfn', type=str, default='a',
+                        help='qfn: a is default, b is sym incoherent based')
+
+    parser.add_argument('--unbiased', action='store_true',
+                        help='unbiased')
+    
+    parser.add_argument('--incoh_processing', action='store_true',
+                        help='incoherence processing')
+    
+    parser.add_argument('--npasses', type=int, default=0,
+                        help='number passes to repeat balance loop over 1-d.')
+    
+    parser.add_argument('--lazy_batch', action='store_true',
+                        help='lazy batch updates in blocks as used in OPTQ')
+    
+    parser.add_argument('--quant', choices=['allbal', 'ldlq', 'ldlqRG', 'ldlbal_admm', 'near', 'gptq'], default='gptq',
+                        help='Which quantization method to use.')
     
     args = parser.parse_args()
+
+    if args.incoh_processing:
+        args.pre_gptqH   = True
+        args.pre_rescale = True
+        args.pre_proj    = True
+        args.proj_extra  = 1
+        args.qfn         = 'b'
+
+    if args.qfn=='b': assert args.pre_proj is True
+    print(f"Preprocessing flags: gptqH:{args.pre_gptqH}, rescale:{args.pre_rescale}, proj:{args.pre_proj}, proj_extra:{args.pre_proj_extra}, qfn:{args.qfn}")
+    print(f"using lazy_batch updates: {args.lazy_batch}")
+    # LDL checks
+    if ('ldl' in args.quant) and args.unbiased and (args.npasses > 0):
+        print(f"LDL NOTE: unbiased + {args.npasses} npasses. NOT TRULY UNBIASED.")
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
@@ -336,4 +423,4 @@ if __name__ == '__main__':
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)
 
-    detr_sequential(args, model, dataloader, dev)
+    detr_sequential(model, dataloader, dev, args)
