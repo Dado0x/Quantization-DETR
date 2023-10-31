@@ -1,8 +1,11 @@
+import argparse
+
 import torch
 import torchvision
-from transformers import DetrFeatureExtractor, DetrForObjectDetection
-from datasets.coco_eval import CocoEvaluator
 from tqdm import tqdm
+from transformers import DetrFeatureExtractor, DetrForObjectDetection
+
+from datasets.coco_eval import CocoEvaluator
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -32,19 +35,25 @@ def collate_fn(batch):
     batch['labels'] = labels
     return batch
 
-ROOT = "C:/Users/chave/PycharmProjects/Quantization-DETR/"
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--root', type=str)
+    parser.add_argument('--model', type=str)
+
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
-    model.load_state_dict(torch.load(ROOT + "detr_4bits.bin"))
+    model.load_state_dict(torch.load(args.root + args.model))
     model.eval()
 
     feature_extractor = DetrFeatureExtractor()
 
-    dataset_val = CocoDetection(img_folder=ROOT + 'coco/val2017',
-                                ann_file=ROOT + 'coco/annotations/instances_val2017.json',
+    dataset_val = CocoDetection(img_folder=args.root + 'coco/val2017',
+                                ann_file=args.root + 'coco/annotations/instances_val2017.json',
                                 feature_extractor=feature_extractor)
     dataloader = torch.utils.data.DataLoader(dataset_val, 2, collate_fn=collate_fn)
 

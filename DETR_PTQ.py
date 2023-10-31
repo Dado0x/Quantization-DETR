@@ -7,9 +7,6 @@ from gptq.gptq import *
 from gptq.modelutils import *
 from gptq.quant import *
 
-ROOT = "C:/Users/David/Notebook/Quantization-DETR/"
-
-
 @torch.no_grad()
 def detr_sequential(args, model, dataloader, dev):
 
@@ -289,19 +286,19 @@ def detr_sequential(args, model, dataloader, dev):
         print(k, v)
     print("------------------")
 
-    torch.save(model.state_dict(), ROOT+f"detr_{args.wbits}bits.bin")
+    torch.save(model.state_dict(), ROOT+f"detr_gptq_{args.wbits}bits.bin")
     return quantizers
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--backbone', action='store_false', 
+    parser.add_argument('--backbone', action='store_true',
                         help='Whether to quantize the backbone. Quantize by default.')
 
-    parser.add_argument('--transformer', action='store_false', 
+    parser.add_argument('--transformer', action='store_true',
                         help='Whether to quantize the transformer. Quantize by default.')
 
-    parser.add_argument('--output_head', action='store_false', 
+    parser.add_argument('--output_head', action='store_true',
                         help='Whether to quantize the output head. Quantize by default.')
 
     parser.add_argument('--seed',type=int, default=0, 
@@ -324,10 +321,23 @@ if __name__ == '__main__':
     
     parser.add_argument('--static-groups', action='store_false', 
                         help='Whether to use static groups; recommended when using `--actorder` for more efficient inference.')
-    
+
+    parser.add_argument('--root', type=str, default='')
+
     args = parser.parse_args()
 
+    if not args.backbone and not args.transformer and not args.output_head:
+        args.backbone = True
+        args.transformer = True
+        args.output_head = True
+
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print(args.root)
+
+    if args.root != "":
+        ROOT = args.root
+
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
     model = model.eval()
 

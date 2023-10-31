@@ -338,13 +338,13 @@ def detr_sequential(model, dataloader, dev, args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--backbone', action='store_false', 
+    parser.add_argument('--backbone', action='store_true',
                         help='Whether to quantize the backbone. Quantize by default.')
 
-    parser.add_argument('--transformer', action='store_false', 
+    parser.add_argument('--transformer', action='store_true',
                         help='Whether to quantize the transformer. Quantize by default.')
 
-    parser.add_argument('--output_head', action='store_false', 
+    parser.add_argument('--output_head', action='store_true',
                         help='Whether to quantize the output head. Quantize by default.')
 
     parser.add_argument('--seed',type=int, default=0, 
@@ -399,6 +399,11 @@ if __name__ == '__main__':
                         help='Which quantization method to use.')
     
     args = parser.parse_args()
+
+    if not args.backbone and not args.transformer and not args.output_head:
+        args.backbone = True
+        args.transformer = True
+        args.output_head = True
 
     if args.incoh_processing:
         args.pre_gptqH   = True
