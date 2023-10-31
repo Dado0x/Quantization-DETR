@@ -1,5 +1,3 @@
-import torch
-import sys
 import sys
 
 import torch
@@ -517,7 +515,7 @@ def quantize_weight_vecbal(w,
             wr, H, nbits, npasses, unbiased=unbiased, qmethod=qmethod, 
             lazy_batch=lazy_batch)
         wr = scale * (wr - zero)
-        return wr.half()
+        return wr
     elif qfn == 'b':
         scale = 2.4 * w.square().mean().sqrt() + 1e-16
         wr = w / scale
@@ -527,6 +525,6 @@ def quantize_weight_vecbal(w,
             lazy_batch=lazy_batch)
         wr = (wr / maxq) * 2 - 1
         wr = wr * scale
-        return wr.half()
+        return wr
     else:
         return NotImplementedError()

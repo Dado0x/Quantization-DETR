@@ -134,7 +134,8 @@ class QuantMethod:
         if preproc_rescale:
             w = self.layer.weight.data.clone().to(torch.float32)
             H = self.H.to(torch.float32)
-            H /= H.abs().max()
+            if H.abs().max() != 0.0: ## Fix for zero H
+                H /= H.abs().max()
             diagH = torch.diag(H)
             diagW2 = torch.diag(w.T @ w)
             diagH = torch.clamp(diagH, min=1e-8)

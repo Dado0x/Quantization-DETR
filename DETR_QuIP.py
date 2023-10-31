@@ -10,8 +10,6 @@ from QuIP.quant import *
 from datasets.coco import build as build_dataset
 from gptq.modelutils import *
 
-ROOT = "C:/Users/David/Notebook/Quantization-DETR/"
-
 
 @torch.no_grad()
 def detr_sequential(model, dataloader, dev, args):
@@ -332,8 +330,16 @@ def detr_sequential(model, dataloader, dev, args):
     print("------------------")
 
     print(f'Total quant time: {sum(times):.2f}s')
-    torch.save(model.state_dict(), ROOT+f"detr_{args.quant}{'_IP' if args.incoh_processing else ''}_{args.wbits}bits.bin")
+    name = f"detr_{args.quant}{'_IP' if args.incoh_processing else ''}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
+
+    with open(args.root+name+".csv", 'w') as f:
+        f.write("Layer, Error\n")
+        for k, v in errors.items():
+            f.write(f"{k}, {v:.5f}\n")
+
+    torch.save(model.state_dict(), args.root+name+".bin")
     return quantizers, errors
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -397,6 +403,8 @@ if __name__ == '__main__':
     
     parser.add_argument('--quant', choices=['allbal', 'ldlq', 'ldlqRG', 'ldlbal_admm', 'near', 'gptq'], default='gptq',
                         help='Which quantization method to use.')
+
+    parser.add_argument('--root', type=str)
     
     args = parser.parse_args()
 
@@ -423,7 +431,7 @@ if __name__ == '__main__':
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
     model = model.eval()
 
-    dataset_val = build_dataset(image_set='val', coco_path=ROOT+"coco")
+    dataset_val = build_dataset(image_set='val', coco_path=args.root+"coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)

@@ -286,7 +286,14 @@ def detr_sequential(args, model, dataloader, dev):
         print(k, v)
     print("------------------")
 
-    torch.save(model.state_dict(), ROOT+f"detr_gptq_{args.wbits}bits.bin")
+    name = f"detr_{args.quant}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
+
+    with open(args.root + name + ".csv", 'w') as f:
+        f.write("Layer, Error\n")
+        for k, v in errors.items():
+            f.write(f"{k}, {v:.5f}\n")
+
+    torch.save(model.state_dict(), args.root + name + ".bin")
     return quantizers
 
 if __name__ == '__main__':
