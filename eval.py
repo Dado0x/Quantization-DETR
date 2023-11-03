@@ -6,6 +6,8 @@ from tqdm import tqdm
 from transformers import DetrFeatureExtractor, DetrForObjectDetection
 
 from datasets.coco_eval import CocoEvaluator
+from util.build_dino import build_dino_model
+from util.misc import NestedTensor
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -46,8 +48,14 @@ if __name__ == '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
-    model.load_state_dict(torch.load(args.root + args.model))
+    if "dino" in args.model:
+        model = build_dino_model(args.root)
+        model.load_state_dict(torch.load(args.root + "checkpoint0033_4scale.pth", map_location=device)['model'])
+    else:
+        model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
+
+    print(model)
+    #model.load_state_dict(torch.load(args.root + args.model))
     model.eval()
 
     feature_extractor = DetrFeatureExtractor()
@@ -71,7 +79,10 @@ if __name__ == '__main__':
                   batch["labels"]]  # these are in DETR format, resized + normalized
 
         # forward pass
-        outputs = model(pixel_values=pixel_values, pixel_mask=pixel_mask)
+        if "dino" in args.model:
+            outputs = model(NestedTensor(pixel_values, pixel_mask))
+        else:
+            outputs = model(pixel_values=pixel_values, pixel_mask=pixel_mask)
 
         orig_target_sizes = torch.stack([target["orig_size"] for target in labels], dim=0)
         results = feature_extractor.post_process(outputs, orig_target_sizes)  # convert outputs to COCO api

@@ -11,7 +11,6 @@ from gptq.quant import *
 def detr_sequential(args, model, dataloader, dev):
 
     print('Starting ...')
-    print('Transformers inputs')
 
     layers = torch.nn.ModuleList()
 
@@ -37,6 +36,7 @@ def detr_sequential(args, model, dataloader, dev):
     cache = {'i': 0, "queries": None, "query_position_embeddings": None}
 
     if args.transformer:
+        print('Transformers inputs')
         layers = model.model.encoder.layers + model.model.decoder.layers
 
         encoder_idx = 0
@@ -260,15 +260,15 @@ def detr_sequential(args, model, dataloader, dev):
         del gptq 
         torch.cuda.empty_cache()
 
-        if i == backbone_idx: # Outputs backbone
+        if i == backbone_idx: # Keep backbone outputs
             for k in range(args.nsamples):
                 outs[k] = outs[k][0][0]
-        if i == input_projection_idx: # Outputs projection
+        if i == input_projection_idx:
             if args.transformer:
-                outs = inps_encoder
+                outs = inps_encoder # Encoder inputs
             else:
-                outs = inps_output_head 
-        if i == decoder_idx-1: # Outputs encoder
+                outs = inps_output_head # Output_head inputs
+        if i == decoder_idx-1:  # Decoder inputs
             for k in range(args.nsamples):
                 inps_encoder_hidden_states[k] = outs[k].clone()
                 outs[k] = cache['queries']
@@ -286,7 +286,7 @@ def detr_sequential(args, model, dataloader, dev):
         print(k, v)
     print("------------------")
 
-    name = f"detr_{args.quant}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
+    name = f"detr_gptq{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
 
     with open(args.root + name + ".csv", 'w') as f:
         f.write("Layer, Error\n")

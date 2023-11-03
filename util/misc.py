@@ -466,3 +466,33 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
         return _new_empty_tensor(input, output_shape)
     else:
         return torchvision.ops.misc.interpolate(input, size, scale_factor, mode, align_corners)
+
+
+class color_sys():
+    def __init__(self, num_colors) -> None:
+        self.num_colors = num_colors
+        colors = []
+        for i in np.arange(0., 360., 360. / num_colors):
+            hue = i / 360.
+            lightness = (50 + np.random.rand() * 10) / 100.
+            saturation = (90 + np.random.rand() * 10) / 100.
+            colors.append(tuple([int(j * 255) for j in colorsys.hls_to_rgb(hue, lightness, saturation)]))
+        self.colors = colors
+
+    def __call__(self, idx):
+        return self.colors[idx]
+
+
+def inverse_sigmoid(x, eps=1e-3):
+    x = x.clamp(min=0, max=1)
+    x1 = x.clamp(min=eps)
+    x2 = (1 - x).clamp(min=eps)
+    return torch.log(x1 / x2)
+
+
+def clean_state_dict(state_dict):
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k[:7] == 'module.':
+            k = k[7:]  # remove `module.`
+        new_state_dict[k] = v
