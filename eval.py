@@ -3,11 +3,11 @@ import argparse
 import torch
 import torchvision
 from tqdm import tqdm
-from transformers import DetrFeatureExtractor, DetrForObjectDetection
+from transformers import DetrFeatureExtractor, DetrForObjectDetection, DetrImageProcessor
 
 from datasets.coco_eval import CocoEvaluator
-from util.build_dino import build_dino_model
-from util.misc import NestedTensor
+#from util.build_dino import build_dino_model
+#from util.misc import NestedTensor
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -41,7 +41,7 @@ def collate_fn(batch):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--root', type=str)
+    parser.add_argument('--coco', type=str)
     parser.add_argument('--model', type=str)
 
     args = parser.parse_args()
@@ -55,13 +55,13 @@ if __name__ == '__main__':
         model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
 
     print(model)
-    #model.load_state_dict(torch.load(args.root + args.model))
+    model.load_state_dict(torch.load(args.model))
     model.eval()
 
-    feature_extractor = DetrFeatureExtractor()
+    feature_extractor = DetrImageProcessor()
 
-    dataset_val = CocoDetection(img_folder=args.root + 'coco/val2017',
-                                ann_file=args.root + 'coco/annotations/instances_val2017.json',
+    dataset_val = CocoDetection(img_folder=args.coco + 'val2017',
+                                ann_file=args.coco + 'annotations/instances_val2017.json',
                                 feature_extractor=feature_extractor)
     dataloader = torch.utils.data.DataLoader(dataset_val, 2, collate_fn=collate_fn)
 
@@ -72,20 +72,17 @@ if __name__ == '__main__':
     print("Running evaluation...")
 
     for idx, batch in enumerate(tqdm(dataloader)):
-        # get the inputs
         pixel_values = batch["pixel_values"].to(device)
         pixel_mask = batch["pixel_mask"].to(device)
-        labels = [{k: v.to(device) for k, v in t.items()} for t in
-                  batch["labels"]]  # these are in DETR format, resized + normalized
+        labels = [{k: v.to(device) for k, v in t.items()} for t in batch["labels"]]
 
-        # forward pass
         if "dino" in args.model:
             outputs = model(NestedTensor(pixel_values, pixel_mask))
         else:
             outputs = model(pixel_values=pixel_values, pixel_mask=pixel_mask)
 
         orig_target_sizes = torch.stack([target["orig_size"] for target in labels], dim=0)
-        results = feature_extractor.post_process(outputs, orig_target_sizes)  # convert outputs to COCO api
+        results = feature_extractor.post_process_object_detection(outputs, 0, orig_target_sizes)
         res = {target['image_id'].item(): output for target, output in zip(labels, results)}
         coco_evaluator.update(res)
 
