@@ -89,8 +89,7 @@ def detr_sequential(model, dataloader, dev, args):
         model.model.decoder.layers[0] = layers[decoder_idx].module
         layers[decoder_idx] = layers[decoder_idx].module
 
-    model.cpu()
-    torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     if args.backbone:
         model.model.backbone.to(dev)
@@ -154,6 +153,7 @@ def detr_sequential(model, dataloader, dev, args):
             bbox_predictor_idx += 12
         
         if not args.transformer:
+            print('Output head inputs')
             cache['i'] = 0
             class CatcherHead(nn.Module):
                 def __init__(self, module):
@@ -191,6 +191,9 @@ def detr_sequential(model, dataloader, dev, args):
     inps_encoder_hidden_states = [None] * args.nsamples
 
     errors = {}
+
+    model.cpu()
+
     print('Ready.')
 
     quantizers = {}

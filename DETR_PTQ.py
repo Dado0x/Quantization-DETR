@@ -7,9 +7,9 @@ from gptq.gptq import *
 from gptq.modelutils import *
 from gptq.quant import *
 
+
 @torch.no_grad()
 def detr_sequential(args, model, dataloader, dev):
-
     print('Starting ...')
 
     layers = torch.nn.ModuleList()
@@ -22,7 +22,7 @@ def detr_sequential(args, model, dataloader, dev):
     bbox_predictor_idx = -1
 
     # Input encoder
-    inps_encoder = [None] * args.nsamples 
+    inps_encoder = [None] * args.nsamples
     inps_attention_mask = [None] * args.nsamples
     inps_position_embeddings = [None] * args.nsamples
 
@@ -31,7 +31,7 @@ def detr_sequential(args, model, dataloader, dev):
     inps_pixel_mask = [None] * args.nsamples
 
     # Input output head
-    inps_output_head = [None] * args.nsamples 
+    inps_output_head = [None] * args.nsamples
 
     cache = {'i': 0, "queries": None, "query_position_embeddings": None}
 
@@ -46,8 +46,9 @@ def detr_sequential(args, model, dataloader, dev):
             def __init__(self, module):
                 super().__init__()
                 self.module = module
+
             def forward(self, inp, attention_mask, **kwargs):
-                if 'query_position_embeddings' in kwargs.keys():# Decoder
+                if 'query_position_embeddings' in kwargs.keys():  # Decoder
                     cache["queries"] = inp
                     cache['query_position_embeddings'] = kwargs['query_position_embeddings']
                     raise ValueError
@@ -85,8 +86,7 @@ def detr_sequential(args, model, dataloader, dev):
         model.model.decoder.layers[0] = layers[decoder_idx].module
         layers[decoder_idx] = layers[decoder_idx].module
 
-    model.cpu()
-    torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     if args.backbone:
         model.model.backbone.to(dev)
@@ -110,6 +110,7 @@ def detr_sequential(args, model, dataloader, dev):
             def __init__(self, module):
                 super().__init__()
                 self.module = module
+
             def forward(self, pixel_values, pixel_mask, **kwargs):
                 inps_pixel[cache['i']] = pixel_values.cpu()
                 inps_pixel_mask[cache['i']] = pixel_mask.cpu()
@@ -148,13 +149,16 @@ def detr_sequential(args, model, dataloader, dev):
         if args.transformer:
             label_classifier_idx += 12
             bbox_predictor_idx += 12
-        
+
         if not args.transformer:
+            print('Output head inputs')
             cache['i'] = 0
+
             class CatcherHead(nn.Module):
                 def __init__(self, module):
                     super().__init__()
                     self.module = module
+
                 def forward(self, inp, **kwargs):
                     inps_output_head[cache['i']] = inp.cpu()
                     cache['i'] += 1
@@ -179,7 +183,7 @@ def detr_sequential(args, model, dataloader, dev):
     elif args.transformer:
         inps = inps_encoder
     elif args.output_head:
-        inps = inps_output_head 
+        inps = inps_output_head
     else:
         raise ValueError("Can not quantize nothing")
 
@@ -187,6 +191,9 @@ def detr_sequential(args, model, dataloader, dev):
     inps_encoder_hidden_states = [None] * args.nsamples
 
     errors = {}
+
+    model.cpu()
+
     print('Ready.')
 
     quantizers = {}
@@ -205,19 +212,25 @@ def detr_sequential(args, model, dataloader, dev):
         def add_batch(name):
             def tmp(_, inp, out):
                 gptq[name].add_batch(inp[0].data, out.data)
+
             return tmp
+
         handles = []
         for name in subset:
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
-            if i == backbone_idx: # Backbone
+            if i == backbone_idx:  # Backbone
                 outs[j] = layer(inps[j].to(dev), inps_pixel_mask[j].to(dev))[0]
             elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
                 outs[j] = layer(inps[j].to(dev))
-            elif i >= decoder_idx: # Decoder
-                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None, position_embeddings=inps_position_embeddings[j].to(dev), query_position_embeddings=cache['query_position_embeddings'])[0]
-            else: # Encoder
-                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev), position_embeddings=inps_position_embeddings[j].to(dev))[0]
+            elif i >= decoder_idx:  # Decoder
+                outs[j] = \
+                layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None,
+                      position_embeddings=inps_position_embeddings[j].to(dev),
+                      query_position_embeddings=cache['query_position_embeddings'])[0]
+            else:  # Encoder
+                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev),
+                                position_embeddings=inps_position_embeddings[j].to(dev))[0]
         for h in handles:
             h.remove()
 
@@ -225,7 +238,8 @@ def detr_sequential(args, model, dataloader, dev):
             print(i, name)
             print('Quantizing ...')
             error = gptq[name].fasterquant(
-                percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
+                percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order,
+                static_groups=args.static_groups
             )
             quantizers['model.decoder.layers.%d.%s' % (i, name)] = gptq[name].quantizer
             gptq[name].free()
@@ -240,9 +254,9 @@ def detr_sequential(args, model, dataloader, dev):
             elif i == bbox_predictor_idx:
                 s = f"Bbox_predictor_{name}"
             elif i >= decoder_idx:
-                s = f"Decoder_{i-decoder_idx}_{name}"
+                s = f"Decoder_{i - decoder_idx}_{name}"
             else:
-                s = f"Encoder_{i-encoder_idx}_{name}"
+                s = f"Encoder_{i - encoder_idx}_{name}"
             errors[s] = error
 
         for j in range(args.nsamples):
@@ -251,28 +265,32 @@ def detr_sequential(args, model, dataloader, dev):
             elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
                 outs[j] = layer(inps[j].to(dev))
             elif i >= decoder_idx:  # Decoder
-                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None, position_embeddings=inps_position_embeddings[j].to(dev), query_position_embeddings=cache['query_position_embeddings'])[0]
-            else: # Encoder
-                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev), position_embeddings=inps_position_embeddings[j].to(dev))[0]
+                outs[j] = \
+                layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None,
+                      position_embeddings=inps_position_embeddings[j].to(dev),
+                      query_position_embeddings=cache['query_position_embeddings'])[0]
+            else:  # Encoder
+                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev),
+                                position_embeddings=inps_position_embeddings[j].to(dev))[0]
 
         layers[i] = layer.cpu()
         del layer
-        del gptq 
+        del gptq
         torch.cuda.empty_cache()
 
-        if i == backbone_idx: # Keep backbone outputs
+        if i == backbone_idx:  # Keep backbone outputs
             for k in range(args.nsamples):
                 outs[k] = outs[k][0][0]
         if i == input_projection_idx:
             if args.transformer:
-                outs = inps_encoder # Encoder inputs
+                outs = inps_encoder  # Encoder inputs
             else:
-                outs = inps_output_head # Output_head inputs
-        if i == decoder_idx-1:  # Decoder inputs
+                outs = inps_output_head  # Output_head inputs
+        if i == decoder_idx - 1:  # Decoder inputs
             for k in range(args.nsamples):
                 inps_encoder_hidden_states[k] = outs[k].clone()
                 outs[k] = cache['queries']
-        if i == label_classifier_idx: # Keep decoder outputs for bbox_predictor
+        if i == label_classifier_idx:  # Keep decoder outputs for bbox_predictor
             for k in range(args.nsamples):
                 outs[k] = inps[k].clone()
 
@@ -296,6 +314,7 @@ def detr_sequential(args, model, dataloader, dev):
     torch.save(model.state_dict(), args.root + name + ".bin")
     return quantizers
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -308,25 +327,25 @@ if __name__ == '__main__':
     parser.add_argument('--output_head', action='store_true',
                         help='Whether to quantize the output head. Quantize by default.')
 
-    parser.add_argument('--seed',type=int, default=0, 
+    parser.add_argument('--seed', type=int, default=0,
                         help='Seed for sampling the calibration data.')
-    
+
     parser.add_argument('--nsamples', type=int, default=1000,
                         help='Number of calibration data samples.')
 
     parser.add_argument('--wbits', type=int, default=8, choices=[2, 3, 4, 5, 6, 7, 8],
                         help='#bits to use for quantization; use 16 for evaluating base model.')
-    
+
     parser.add_argument('--percdamp', type=float, default=.01,
                         help='Percent of the average Hessian diagonal to use for dampening.')
-    
-    parser.add_argument('--groupsize',type=int,default=-1,
+
+    parser.add_argument('--groupsize', type=int, default=-1,
                         help='Groupsize to use for quantization; default uses full row.')
-    
+
     parser.add_argument('--act-order', action='store_false',
                         help='Whether to apply the activation order GPTQ heuristic')
-    
-    parser.add_argument('--static-groups', action='store_false', 
+
+    parser.add_argument('--static-groups', action='store_false',
                         help='Whether to use static groups; recommended when using `--actorder` for more efficient inference.')
 
     parser.add_argument('--root', type=str, default='')
@@ -348,7 +367,7 @@ if __name__ == '__main__':
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
     model = model.eval()
 
-    dataset_val = build_dataset(image_set='val', coco_path=ROOT+"coco")
+    dataset_val = build_dataset(image_set='val', coco_path=ROOT + "coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)

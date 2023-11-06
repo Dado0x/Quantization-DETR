@@ -110,8 +110,7 @@ def detr_sequential(args, model, dataloader, dev):
 
         layers = layers + decoder_layers
 
-    model.cpu()
-    torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     if args.backbone:
         model.model.backbone.to(dev)
@@ -160,6 +159,7 @@ def detr_sequential(args, model, dataloader, dev):
         model.model.input_projection.cpu()
 
     if args.output_head:
+        print('Output head inputs')
         layers = layers.append(model.class_labels_classifier)
         layers = layers.append(model.bbox_predictor)
 
@@ -211,6 +211,9 @@ def detr_sequential(args, model, dataloader, dev):
     outs = [None] * args.nsamples
 
     errors = {}
+
+    model.cpu()
+
     print('Ready.')
 
     quantizers = {}
