@@ -3,11 +3,9 @@ import argparse
 import torch
 import torchvision
 from tqdm import tqdm
-from transformers import DetrFeatureExtractor, DetrForObjectDetection, DetrImageProcessor
+from transformers import DetrForObjectDetection, DetrImageProcessor
 
 from datasets.coco_eval import CocoEvaluator
-#from util.build_dino import build_dino_model
-#from util.misc import NestedTensor
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -48,11 +46,7 @@ if __name__ == '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if "dino" in args.model:
-        model = build_dino_model(args.root)
-        model.load_state_dict(torch.load(args.root + "checkpoint0033_4scale.pth", map_location=device)['model'])
-    else:
-        model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
+    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
 
     print(model)
     model.load_state_dict(torch.load(args.model))
@@ -71,20 +65,18 @@ if __name__ == '__main__':
 
     print("Running evaluation...")
 
-    for idx, batch in enumerate(tqdm(dataloader)):
-        pixel_values = batch["pixel_values"].to(device)
-        pixel_mask = batch["pixel_mask"].to(device)
-        labels = [{k: v.to(device) for k, v in t.items()} for t in batch["labels"]]
+    with torch.no_grad():
+        for idx, batch in enumerate(tqdm(dataloader)):
+            pixel_values = batch["pixel_values"].to(device)
+            pixel_mask = batch["pixel_mask"].to(device)
+            labels = [{k: v.to(device) for k, v in t.items()} for t in batch["labels"]]
 
-        if "dino" in args.model:
-            outputs = model(NestedTensor(pixel_values, pixel_mask))
-        else:
             outputs = model(pixel_values=pixel_values, pixel_mask=pixel_mask)
 
-        orig_target_sizes = torch.stack([target["orig_size"] for target in labels], dim=0)
-        results = feature_extractor.post_process_object_detection(outputs, 0, orig_target_sizes)
-        res = {target['image_id'].item(): output for target, output in zip(labels, results)}
-        coco_evaluator.update(res)
+            orig_target_sizes = torch.stack([target["orig_size"] for target in labels], dim=0)
+            results = feature_extractor.post_process_object_detection(outputs, 0, orig_target_sizes)
+            res = {target['image_id'].item(): output for target, output in zip(labels, results)}
+            coco_evaluator.update(res)
 
     coco_evaluator.synchronize_between_processes()
     coco_evaluator.accumulate()
