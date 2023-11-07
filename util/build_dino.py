@@ -1,14 +1,18 @@
 import argparse
 
+import torch
+
 from dino import build_dino
 from util.slconfig import SLConfig
 
 
 def build_dino_model(root):
 
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     args = argparse.Namespace(coco_path=root + "coco",
                               config_file=root + "dino/DINO_4scale.py",
-                              device="cpu")
+                              device=dev)
 
     cfg = SLConfig.fromfile(args.config_file)
 
