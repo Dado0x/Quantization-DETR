@@ -8,9 +8,9 @@ from gptq.modelutils import *
 from gptq.quant import *
 from util.build_dino import build_dino_model
 
+
 @torch.no_grad()
 def detr_sequential(args, model, dataloader, dev):
-
     print('Starting ...')
 
     layers = torch.nn.ModuleList()
@@ -37,13 +37,12 @@ def detr_sequential(args, model, dataloader, dev):
     inps_tgt_reference_points = [None] * args.nsamples
     inps_memory = [None] * args.nsamples
 
-
     # Input backbone
     inps_pixel = [None] * args.nsamples
     inps_pixel_mask = [None] * args.nsamples
 
     # Input output head
-    inps_output_head = [None] * args.nsamples 
+    inps_output_head = [None] * args.nsamples
 
     cache = {'i': 0, "queries": None, "query_position_embeddings": None}
 
@@ -58,7 +57,9 @@ def detr_sequential(args, model, dataloader, dev):
             def __init__(self, module):
                 super().__init__()
                 self.module = module
-            def forward(self, src, pos, reference_points, spatial_shapes, level_start_index, key_padding_mask, **kwargs):
+
+            def forward(self, src, pos, reference_points, spatial_shapes, level_start_index, key_padding_mask,
+                        **kwargs):
                 inps_encoder[cache['i']] = src.cpu()
                 inps_pos[cache['i']] = pos.cpu()
                 inps_reference_points[cache['i']] = reference_points.cpu()
@@ -85,6 +86,7 @@ def detr_sequential(args, model, dataloader, dev):
             def __init__(self, module):
                 super().__init__()
                 self.module = module
+
             def forward(self, tgt, **kwargs):
                 inps_tgt[cache['i']] = tgt.cpu()
                 inps_tgt_query_pos[cache['i']] = kwargs['tgt_query_pos'].cpu()
@@ -134,6 +136,7 @@ def detr_sequential(args, model, dataloader, dev):
             def __init__(self, module):
                 super().__init__()
                 self.module = module
+
             def forward(self, pixel_values, pixel_mask, **kwargs):
                 inps_pixel[cache['i']] = pixel_values.cpu()
                 inps_pixel_mask[cache['i']] = pixel_mask.cpu()
@@ -173,13 +176,15 @@ def detr_sequential(args, model, dataloader, dev):
         if args.transformer:
             label_classifier_idx += 12
             bbox_predictor_idx += 12
-        
+
         if not args.transformer:
             cache['i'] = 0
+
             class CatcherHead(nn.Module):
                 def __init__(self, module):
                     super().__init__()
                     self.module = module
+
                 def forward(self, inp, **kwargs):
                     inps_output_head[cache['i']] = inp.cpu()
                     cache['i'] += 1
@@ -204,7 +209,7 @@ def detr_sequential(args, model, dataloader, dev):
     elif args.transformer:
         inps = inps_encoder
     elif args.output_head:
-        inps = inps_output_head 
+        inps = inps_output_head
     else:
         raise ValueError("Can not quantize nothing")
 
@@ -232,16 +237,18 @@ def detr_sequential(args, model, dataloader, dev):
         def add_batch(name):
             def tmp(_, inp, out):
                 gptq[name].add_batch(inp[0].data, out.data)
+
             return tmp
+
         handles = []
         for name in subset:
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
-            if i == backbone_idx: # Backbone
+            if i == backbone_idx:  # Backbone
                 outs[j] = layer(inps[j].to(dev), inps_pixel_mask[j].to(dev))[0]
             elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
                 outs[j] = layer(inps[j].to(dev))
-            elif i >= decoder_idx: # Decoder
+            elif i >= decoder_idx:  # Decoder
                 outs[j] = layer(tgt=inps[j].to(dev),
                                 tgt_query_pos=inps_tgt_query_pos[j].to(dev),
                                 tgt_query_sine_embed=inps_tgt_query_sine_embed[j].to(dev),
@@ -251,7 +258,7 @@ def detr_sequential(args, model, dataloader, dev):
                                 memory_level_start_index=inps_level_start_index[j].to(dev),
                                 memory_spatial_shapes=inps_spatial_shapes[j].to(dev),
                                 memory_pos=inps_pos[j].transpose(0, 1).to(dev))
-            else: # Encoder
+            else:  # Encoder
                 outs[j] = layer(src=inps[j].to(dev), pos=inps_pos[j].to(dev),
                                 reference_points=inps_reference_points[j].to(dev),
                                 spatial_shapes=inps_spatial_shapes[j].to(dev),
@@ -263,7 +270,8 @@ def detr_sequential(args, model, dataloader, dev):
             print(i, name)
             print('Quantizing ...')
             error = gptq[name].fasterquant(
-                percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order, static_groups=args.static_groups
+                percdamp=args.percdamp, groupsize=args.groupsize, actorder=args.act_order,
+                static_groups=args.static_groups
             )
             quantizers['model.decoder.layers.%d.%s' % (i, name)] = gptq[name].quantizer
             gptq[name].free()
@@ -278,9 +286,9 @@ def detr_sequential(args, model, dataloader, dev):
             elif i == bbox_predictor_idx:
                 s = f"Bbox_predictor_{name}"
             elif i >= decoder_idx:
-                s = f"Decoder_{i-decoder_idx}_{name}"
+                s = f"Decoder_{i - decoder_idx}_{name}"
             else:
-                s = f"Encoder_{i-encoder_idx}_{name}"
+                s = f"Encoder_{i - encoder_idx}_{name}"
             errors[s] = error
 
         for j in range(args.nsamples):
@@ -298,7 +306,7 @@ def detr_sequential(args, model, dataloader, dev):
                                 memory_level_start_index=inps_level_start_index[j].to(dev),
                                 memory_spatial_shapes=inps_spatial_shapes[j].to(dev),
                                 memory_pos=inps_pos[j].transpose(0, 1).to(dev))
-            else: # Encoder
+            else:  # Encoder
                 outs[j] = layer(src=inps[j].to(dev), pos=inps_pos[j].to(dev),
                                 reference_points=inps_reference_points[j].to(dev),
                                 spatial_shapes=inps_spatial_shapes[j].to(dev),
@@ -306,21 +314,21 @@ def detr_sequential(args, model, dataloader, dev):
 
         layers[i] = layer.cpu()
         del layer
-        del gptq 
+        del gptq
         torch.cuda.empty_cache()
 
-        if i == backbone_idx: # Keep backbone outputs
+        if i == backbone_idx:  # Keep backbone outputs
             for k in range(args.nsamples):
                 outs[k] = outs[k][0][0]
         if i == input_projection_idx:
             if args.transformer:
-                outs = inps_encoder # Encoder inputs
+                outs = inps_encoder  # Encoder inputs
             else:
-                outs = inps_output_head # Output_head inputs
-        if i == decoder_idx-1: # Decoder inputs
+                outs = inps_output_head  # Output_head inputs
+        if i == decoder_idx - 1:  # Decoder inputs
             for k in range(args.nsamples):
                 outs[k] = inps_tgt[k].clone()
-        if i == label_classifier_idx: # Keep decoder outputs for bbox_predictor
+        if i == label_classifier_idx:  # Keep decoder outputs for bbox_predictor
             for k in range(args.nsamples):
                 outs[k] = inps[k].clone()
 
@@ -344,6 +352,7 @@ def detr_sequential(args, model, dataloader, dev):
     torch.save(model.state_dict(), args.root + name + ".bin")
     return quantizers
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -356,25 +365,25 @@ if __name__ == '__main__':
     parser.add_argument('--output_head', action='store_true',
                         help='Whether to quantize the output head. Quantize by default.')
 
-    parser.add_argument('--seed',type=int, default=0, 
+    parser.add_argument('--seed', type=int, default=0,
                         help='Seed for sampling the calibration data.')
-    
+
     parser.add_argument('--nsamples', type=int, default=1000,
                         help='Number of calibration data samples.')
 
     parser.add_argument('--wbits', type=int, default=8, choices=[2, 3, 4, 5, 6, 7, 8],
                         help='#bits to use for quantization; use 16 for evaluating base model.')
-    
+
     parser.add_argument('--percdamp', type=float, default=.01,
                         help='Percent of the average Hessian diagonal to use for dampening.')
-    
-    parser.add_argument('--groupsize',type=int,default=-1,
+
+    parser.add_argument('--groupsize', type=int, default=-1,
                         help='Groupsize to use for quantization; default uses full row.')
-    
+
     parser.add_argument('--act-order', action='store_false',
                         help='Whether to apply the activation order GPTQ heuristic')
-    
-    parser.add_argument('--static-groups', action='store_false', 
+
+    parser.add_argument('--static-groups', action='store_false',
                         help='Whether to use static groups; recommended when using `--actorder` for more efficient inference.')
 
     parser.add_argument('--root', type=str, default='')
@@ -393,15 +402,15 @@ if __name__ == '__main__':
     if args.root != "":
         ROOT = args.root
 
-    model = build_dino_model(args.root)
+    model = build_dino_model(args.root).to(dev)
     model.load_state_dict(torch.load(args.root + "checkpoint0033_4scale.pth", map_location=dev)['model'])
     model = model.eval()
 
     print(model)
 
-    #transformers.models.detr.modeling_detr.DetrAttention(d_model, n_heads, dropout=dropout)
+    # transformers.models.detr.modeling_detr.DetrAttention(d_model, n_heads, dropout=dropout)
 
-    dataset_val = build_dataset(image_set='val', coco_path=ROOT+"coco")
+    dataset_val = build_dataset(image_set='val', coco_path=ROOT + "coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)

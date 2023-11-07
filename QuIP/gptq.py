@@ -106,7 +106,10 @@ class GPTQ(QuantMethod):
             print(torch.sum((self.layer(self.inp1) - self.out1)**2))
 
         self.postproc()
-        self.error_compute(full_W, self.layer.weight.data)
+        if isinstance(self.layer, nn.Conv2d):
+            self.error_compute(full_W, self.layer.weight.data.flatten(1))
+        else:
+            self.error_compute(full_W, self.layer.weight.data)
         # to preserve H for saveH
         if not copy_H:
             del self.H

@@ -205,7 +205,7 @@ def detr_sequential(model, dataloader, dev, args):
         quant_method = {}
         for name in subset:
             print(i, name)
-            if args.quant == 'gptq':
+            if args.quant == 'gptq' or isinstance(subset[name], nn.Conv2d): ## Conv2d is not supported by ldlq
                 quant_method[name] = GPTQ(subset[name])
                 quant_method[name].quantizer = Quantizer()
                 quant_method[name].quantizer.configure(args.wbits,
@@ -260,12 +260,16 @@ def detr_sequential(model, dataloader, dev, args):
         for name in subset:
             print(i, name)
             print('Quantizing ...')
-            quant_method[name].preproc(
-                                preproc_gptqH=args.pre_gptqH, percdamp=args.percdamp,
-                                preproc_rescale=args.pre_rescale, 
-                                preproc_proj=args.pre_proj, preproc_proj_extra=args.pre_proj_extra)
+            if isinstance(subset[name], nn.Conv2d):
+                quant_method[name].preproc(preproc_gptqH=True, percdamp=args.percdamp)
+            else:
+                quant_method[name].preproc(preproc_gptqH=args.pre_gptqH,
+                                           percdamp=args.percdamp,
+                                           preproc_rescale=args.pre_rescale,
+                                           preproc_proj=args.pre_proj,
+                                           preproc_proj_extra=args.pre_proj_extra)
             
-            if args.quant == 'gptq':
+            if args.quant == 'gptq' or isinstance(subset[name], nn.Conv2d):
                 quant_method[name].fasterquant(groupsize=args.groupsize)
             elif args.quant in ['allbal','ldlq','ldlqRG','ldlbal_admm']:
                 quant_method[name].fasterquant(lazy_batch=args.lazy_batch)
@@ -333,7 +337,7 @@ def detr_sequential(model, dataloader, dev, args):
     print("------------------")
 
     print(f'Total quant time: {sum(times):.2f}s')
-    name = f"detr_{args.quant}{'_IP' if args.incoh_processing else ''}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
+    name = f"detr_{args.quant}{'_IP' if args.incoh_processing else ''}{'_unbiased' if args.unbiased else ''}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
 
     with open(args.root+name+".csv", 'w') as f:
         f.write("Layer, Error\n")

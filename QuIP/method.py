@@ -177,6 +177,8 @@ class QuantMethod:
         # H modification from gptq
         if self.preproc_gptqH:
             w = self.layer.weight.data.clone()
+            if isinstance(self.layer, nn.Conv2d):
+                w = w.flatten(1)
             H = self.H.data.clone()
             dead = torch.diag(H) == 0
             H[dead, dead] = 1
@@ -184,6 +186,8 @@ class QuantMethod:
             damp = percdamp * torch.mean(torch.diag(H))
             diag = torch.arange(self.columns, device=self.dev)
             H[diag, diag] += damp
+            if isinstance(self.layer, nn.Conv2d):
+                w = w.reshape(self.layer.weight.shape)
             self.layer.weight.data = w.to(self.layer.weight.data.dtype)
             self.H.data = H.to(self.H.data.dtype)
         self.preproc_done = True
