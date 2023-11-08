@@ -915,7 +915,6 @@ class DeformableTransformerDecoderLayer(nn.Module):
                 tgt = tgt + self.dropout2(tgt2)
                 tgt = self.norm2(tgt)
             elif self.decoder_sa_type == 'sa_detr':
-                print(self_attn_mask)
                 tgt2 = self.self_attn(tgt.transpose(0, 1),
                                       attention_mask=self_attn_mask,
                                       position_embeddings=tgt_query_pos.transpose(0, 1))[0].transpose(0, 1)
