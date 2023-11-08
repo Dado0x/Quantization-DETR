@@ -1,6 +1,7 @@
 import argparse
 
 import torch
+import transformers.models.detr.modeling_detr
 
 from dino import build_dino
 from util.slconfig import SLConfig
@@ -23,5 +24,34 @@ def build_dino_model(root):
             setattr(args, k, v)
 
     model, criterion, postprocessors = build_dino(args)
+    model.load_state_dict(torch.load(root + "checkpoint0033_4scale.pth", map_location=dev)['model'])
+
+    args.decoder_sa_type = 'sa_detr'
+
+    d_model = args.hidden_dim
+    n_heads = args.nheads
+    dropout = args.dropout
+
+    # replace the decoder self-attention layers with the DETR self-attention layers
+    for i, layer in enumerate(model.transformer.decoder.layers):
+        self_attn = transformers.models.detr.modeling_detr.DetrAttention(d_model, n_heads, dropout=dropout)
+
+        self_attn.out_proj.weight.data = layer.self_attn.out_proj.weight.data.clone()
+        self_attn.out_proj.bias.data = layer.self_attn.out_proj.bias.data.clone()
+
+        q, k, v = torch.split(layer.self_attn.in_proj_weight.data.clone(), d_model, dim=0)
+        q_bias, k_bias, v_bias = torch.split(layer.self_attn.in_proj_bias.data.clone(), d_model, dim=0)
+
+        self_attn.q_proj.weight.data = q
+        self_attn.q_proj.bias.data = q_bias
+
+        self_attn.k_proj.weight.data = k
+        self_attn.k_proj.bias.data = k_bias
+
+        self_attn.v_proj.weight.data = v
+        self_attn.v_proj.bias.data = v_bias
+
+        model.transformer.decoder.layers[i].decoder_sa_type = 'sa_detr'
+        model.transformer.decoder.layers[i].self_attn = self_attn
 
     return model

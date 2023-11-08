@@ -391,20 +391,13 @@ if __name__ == '__main__':
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print(args.root)
-
-    if args.root != "":
-        ROOT = args.root
 
     model = build_dino_model(args.root).to(dev)
-    model.load_state_dict(torch.load(args.root + "checkpoint0033_4scale.pth", map_location=dev)['model'])
     model = model.eval()
 
     print(model)
 
-    # transformers.models.detr.modeling_detr.DetrAttention(d_model, n_heads, dropout=dropout)
-
-    dataset_val = build_dataset(image_set='val', coco_path=ROOT + "coco")
+    dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)

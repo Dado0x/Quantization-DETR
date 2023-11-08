@@ -356,15 +356,10 @@ if __name__ == '__main__':
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print(args.root)
-
-    if args.root != "":
-        ROOT = args.root
-
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
     model = model.eval()
 
-    dataset_val = build_dataset(image_set='val', coco_path=ROOT + "coco")
+    dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)
