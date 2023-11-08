@@ -1,5 +1,6 @@
 import argparse
 
+import torch
 from transformers import DeformableDetrForObjectDetection
 
 from datasets.coco import build as build_dataset
@@ -39,7 +40,6 @@ def detr_sequential(args, model, dataloader, dev):
 
     # Input backbone
     inps_pixel = [None] * args.nsamples
-    inps_pixel_mask = [None] * args.nsamples
 
     # Input output head
     inps_output_head = [None] * args.nsamples
@@ -115,21 +115,13 @@ def detr_sequential(args, model, dataloader, dev):
         torch.cuda.empty_cache()
 
     if args.backbone:
-        model.model.backbone.to(dev)
-        model.model.input_projection.to(dev)
-
         backbone_idx = 0
         input_projection_idx = 1
         if args.transformer:
             encoder_idx += 2
             decoder_idx += 2
 
-        # Add input projection to layers
-        layers.insert(0, model.model.input_projection)
-
         print('Backbone inputs')
-        # Add backbone to layers
-        layers.insert(0, model.model.backbone)
         cache['i'] = 0
 
         class CatcherBackbone(nn.Module):
@@ -137,15 +129,13 @@ def detr_sequential(args, model, dataloader, dev):
                 super().__init__()
                 self.module = module
 
-            def forward(self, pixel_values, pixel_mask, **kwargs):
-                inps_pixel[cache['i']] = pixel_values.cpu()
-                inps_pixel_mask[cache['i']] = pixel_mask.cpu()
+            def forward(self, inp, **kwargs):
+                inps_pixel[cache['i']] = inp.to("cpu")
                 cache['i'] += 1
                 raise ValueError
 
         ##Backbone
-        layers[backbone_idx] = CatcherBackbone(layers[backbone_idx])
-        model.model.backbone = layers[backbone_idx]
+        model.backbone = CatcherBackbone(model.backbone)
 
         for batch in dataloader:
             try:
@@ -153,13 +143,16 @@ def detr_sequential(args, model, dataloader, dev):
             except ValueError:
                 pass
 
-        model.model.backbone = layers[backbone_idx].module
-        layers[backbone_idx] = layers[backbone_idx].module
+        model.backbone = model.backbone.module
+
+        # Add input projection to layers
+        layers.insert(0, model.input_proj)
+
+        # Add backbone to layers
+        layers.insert(0, model.backbone)
 
         torch.cuda.empty_cache()
 
-        model.model.backbone.cpu()
-        model.model.input_projection.cpu()
 
     if args.output_head:
         print('Output head inputs')
@@ -244,10 +237,12 @@ def detr_sequential(args, model, dataloader, dev):
         for name in subset:
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
-            if i == backbone_idx:  # Backbone
-                outs[j] = layer(inps[j].to(dev), inps_pixel_mask[j].to(dev))[0]
-            elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
-                outs[j] = layer(inps[j].to(dev))
+            if i == backbone_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Backbone
+                outs[j] = layer(inps[j].to(dev))[0]
+            elif i == input_projection_idx:  # Input projection
+                for l, feat in enumerate(inps[j]):
+                    src, _ = feat.decompose()
+                    layer[l](src.to(dev))
             elif i >= decoder_idx:  # Decoder
                 outs[j] = layer(tgt=inps[j].to(dev),
                                 tgt_query_pos=inps_tgt_query_pos[j].to(dev),
@@ -278,9 +273,9 @@ def detr_sequential(args, model, dataloader, dev):
 
             s = ""
             if i == backbone_idx:
-                s = f"Backbone_{name}"
+                s = f"Backbone_{name[2:]}"
             elif i == input_projection_idx:
-                s = "Input_projection"
+                s = f"Input_projection_{name}"
             elif i == label_classifier_idx:
                 s = "Label_classifier"
             elif i == bbox_predictor_idx:
@@ -292,10 +287,12 @@ def detr_sequential(args, model, dataloader, dev):
             errors[s] = error
 
         for j in range(args.nsamples):
-            if i == backbone_idx:  # Backbone
-                outs[j] = layer(inps[j].to(dev), inps_pixel_mask[j].to(dev))[0]
-            elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
-                outs[j] = layer(inps[j].to(dev))
+            if i == backbone_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Backbone
+                outs[j] = layer(inps[j].to(dev))[0]
+            elif i == input_projection_idx:  # Input projection
+                for l, feat in enumerate(inps[j]):
+                    src, _ = feat.decompose()
+                    layer[l](src.to(dev))
             elif i >= decoder_idx:  # Decoder
                 outs[j] = layer(tgt=inps[j].to(dev),
                                 tgt_query_pos=inps_tgt_query_pos[j].to(dev),
@@ -317,9 +314,6 @@ def detr_sequential(args, model, dataloader, dev):
         del gptq
         torch.cuda.empty_cache()
 
-        if i == backbone_idx:  # Keep backbone outputs
-            for k in range(args.nsamples):
-                outs[k] = outs[k][0][0]
         if i == input_projection_idx:
             if args.transformer:
                 outs = inps_encoder  # Encoder inputs

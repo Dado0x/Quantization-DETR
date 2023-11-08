@@ -134,9 +134,6 @@ def detr_sequential(model, dataloader, dev, args):
 
         torch.cuda.empty_cache()
 
-        model.model.backbone.cpu()
-        model.model.input_projection.cpu()
-
     if args.output_head:
         layers = layers.append(model.class_labels_classifier)
         layers = layers.append(model.bbox_predictor)
