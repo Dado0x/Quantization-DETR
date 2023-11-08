@@ -14,6 +14,7 @@ class Balance(QuantMethod):
         self.nbits = nbits
         self.npasses = npasses
         self.unbiased = unbiased
+        self.old_w = self.layer.weight.data.clone()
 
     def fasterquant(self, lazy_batch=False):
         w = self.layer.weight.data.clone()
@@ -42,5 +43,5 @@ class Balance(QuantMethod):
         self.postproc()
         # print('time %.2f' % (time.time() - tick))
         self.time = time.time() - tick
-        self.error_compute(w, quant_w)
-
+        #self.error_compute(w, quant_w)
+        self.error_compute(self.old_w, quant_w)
