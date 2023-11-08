@@ -22,6 +22,9 @@ def detr_sequential(args, model, dataloader, dev):
     decoder_idx = -1
     label_classifier_idx = -1
     bbox_predictor_idx = -1
+    enc_output_idx = -1
+    enc_out_class_embed_idx = -1
+    enc_out_bbox_embed_idx = -1
 
     # Input encoder
     inps_encoder = [None] * args.nsamples
@@ -43,6 +46,10 @@ def detr_sequential(args, model, dataloader, dev):
 
     # Input output head
     inps_output_head = [None] * args.nsamples
+
+    # Input query selection
+    inps_enc_output = [None] * args.nsamples
+    inps_enc_out = [None] * args.nsamples
 
     cache = {'i': 0, "queries": None, "query_position_embeddings": None}
 
@@ -167,33 +174,102 @@ def detr_sequential(args, model, dataloader, dev):
             label_classifier_idx += 12
             bbox_predictor_idx += 12
 
-        if not args.transformer:
-            cache['i'] = 0
+        #if not args.transformer:
+        cache['i'] = 0
 
-            class CatcherHead(nn.Module):
-                def __init__(self, module):
-                    super().__init__()
-                    self.module = module
+        class CatcherHead(nn.Module):
+            def __init__(self, module):
+                super().__init__()
+                self.module = module
 
-                def forward(self, inp, **kwargs):
-                    inps_output_head[cache['i']] = inp.cpu()
-                    cache['i'] += 1
-                    raise ValueError
+            def forward(self, inp, **kwargs):
+                inps_output_head[cache['i']] = inp.cpu()
+                cache['i'] += 1
+                raise ValueError
 
-            model.class_embed[-1] = CatcherHead(model.class_embed[-1])
+        model.class_embed[-1] = CatcherHead(model.class_embed[-1])
 
-            for batch in dataloader:
-                try:
-                    model(batch[0].to(dev))
-                except ValueError:
-                    pass
+        for batch in dataloader:
+            try:
+                model(batch[0].to(dev))
+            except ValueError:
+                pass
 
-            model.class_embed[-1] = model.class_embed[-1].module
+        model.class_embed[-1] = model.class_embed[-1].module
 
-            layers = layers.append(model.class_embed[-1])
-            layers = layers.append(model.bbox_embed[-1])
+        layers = layers.append(model.class_embed[-1])
+        layers = layers.append(model.bbox_embed[-1])
 
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
+
+    if args.query_sel:
+        print('Query selection inputs')
+
+        enc_output_idx = 0
+        enc_out_class_embed_idx = 1
+        enc_out_bbox_embed_idx = 2
+
+        if args.backbone:
+            enc_output_idx += 2
+            enc_out_class_embed_idx += 2
+            enc_out_bbox_embed_idx += 2
+
+        if args.output_head:
+            enc_output_idx += 2
+            enc_out_class_embed_idx += 2
+            enc_out_bbox_embed_idx += 2
+
+        if args.transformer:
+            enc_output_idx += 12
+            enc_out_class_embed_idx += 12
+            enc_out_bbox_embed_idx += 12
+
+        cache['i'] = 0
+
+        query_selection_layer = "enc_output"
+
+        class CatcherQuerySelection(nn.Module):
+            def __init__(self, module):
+                super().__init__()
+                self.module = module
+
+            def forward(self, inp, **kwargs):
+                if query_selection_layer == "enc_output":
+                    inps_enc_output[cache['i']] = inp.cpu()
+                elif query_selection_layer == "enc_out_bbox_embed":
+                    inps_enc_out[cache['i']] = inp.cpu()
+                cache['i'] += 1
+                raise ValueError
+
+        model.transformer.enc_output = CatcherQuerySelection(model.transformer.enc_output)
+
+        for batch in dataloader:
+            try:
+                model(batch[0].to(dev))
+            except ValueError:
+                pass
+
+        model.transformer.enc_output = model.transformer.enc_output.module
+
+        layers = layers.append(model.transformer.enc_output)
+
+        cache['i'] = 0
+        query_selection_layer = "enc_out_bbox_embed"
+
+        model.transformer.enc_out_class_embed = CatcherQuerySelection(model.transformer.enc_out_class_embed)
+
+        for batch in dataloader:
+            try:
+                model(batch[0].to(dev))
+            except ValueError:
+                pass
+
+        model.transformer.enc_out_class_embed = model.transformer.enc_out_class_embed.module
+
+        layers = layers.append(model.transformer.enc_out_class_embed)
+        layers = layers.append(model.transformer.enc_out_bbox_embed)
+
+        torch.cuda.empty_cache()
 
     if args.backbone:
         inps = inps_pixel
@@ -201,6 +277,8 @@ def detr_sequential(args, model, dataloader, dev):
         inps = inps_encoder
     elif args.output_head:
         inps = inps_output_head
+    elif args.query_sel:
+        inps = inps_enc_output
     else:
         raise ValueError("Can not quantize nothing")
 
@@ -211,7 +289,6 @@ def detr_sequential(args, model, dataloader, dev):
     model.cpu()
 
     print('Ready.')
-
     quantizers = {}
     for i in range(len(layers)):
         layer = layers[i].to(dev)
@@ -235,8 +312,11 @@ def detr_sequential(args, model, dataloader, dev):
         for name in subset:
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
-            if i == backbone_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Backbone
+            if i == backbone_idx:  # Backbone
                 outs[j] = layer(inps[j].to(dev))[0]
+            elif i in [label_classifier_idx, bbox_predictor_idx, enc_output_idx, enc_out_class_embed_idx,
+                     enc_out_bbox_embed_idx]:
+                layer(inps[j].to(dev))
             elif i == input_projection_idx:  # Input projection
                 for l, feat in enumerate(inps[j]):
                     src, _ = feat.decompose()
@@ -278,6 +358,12 @@ def detr_sequential(args, model, dataloader, dev):
                 s = "Label_classifier"
             elif i == bbox_predictor_idx:
                 s = f"Bbox_predictor_{name}"
+            elif i == enc_output_idx:
+                s = "Query_selction_enc_output"
+            elif i == enc_out_class_embed_idx:
+                s = "Query_selction_enc_out_class_embed"
+            elif i == enc_out_bbox_embed_idx:
+                s = f"Query_selction_enc_out_bbox_embed_{name[-8:]}"
             elif i >= decoder_idx:
                 s = f"Decoder_{i - decoder_idx}_{name}"
             else:
@@ -285,8 +371,11 @@ def detr_sequential(args, model, dataloader, dev):
             errors[s] = error
 
         for j in range(args.nsamples):
-            if i == backbone_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Backbone
+            if i == backbone_idx:  # Backbone
                 outs[j] = layer(inps[j].to(dev))[0]
+            elif i in [label_classifier_idx, bbox_predictor_idx, enc_output_idx, enc_out_class_embed_idx,
+                     enc_out_bbox_embed_idx]:
+                layer(inps[j].to(dev))
             elif i == input_projection_idx:  # Input projection
                 for l, feat in enumerate(inps[j]):
                     src, _ = feat.decompose()
@@ -323,6 +412,18 @@ def detr_sequential(args, model, dataloader, dev):
         if i == label_classifier_idx:  # Keep decoder outputs for bbox_predictor
             for k in range(args.nsamples):
                 outs[k] = inps[k].clone()
+        if i == label_classifier_idx - 1:
+            for k in range(args.nsamples):
+                outs[k] = inps_output_head[k].clone()
+        if i == enc_output_idx - 1:
+            for k in range(args.nsamples):
+                outs[k] = inps_enc_output[k].clone()
+        if i == enc_out_class_embed_idx - 1:
+            for k in range(args.nsamples):
+                outs[k] = inps_enc_out[k].clone()
+        if i == enc_out_class_embed_idx:
+            for k in range(args.nsamples):
+                outs[k] = inps[k].clone()
 
         inps, outs = outs, inps
 
@@ -334,7 +435,7 @@ def detr_sequential(args, model, dataloader, dev):
         print(k, v)
     print("------------------")
 
-    name = f"dino_gptq{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
+    name = f"dino_gptq{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}{'_query_selection' if args.query_sel else ''}_{args.nsamples}samples_{args.wbits}bits"
 
     with open(args.root + name + ".csv", 'w') as f:
         f.write("Layer, Error\n")
@@ -356,6 +457,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--output_head', action='store_true',
                         help='Whether to quantize the output head. Quantize by default.')
+
+    parser.add_argument('--query_sel', action='store_true',
+                        help='Whether to quantize the query selection. Quantize by default.')
 
     parser.add_argument('--seed', type=int, default=0,
                         help='Seed for sampling the calibration data.')
@@ -382,10 +486,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if not args.backbone and not args.transformer and not args.output_head:
+    if not args.backbone and not args.transformer and not args.output_head and not args.query_sel:
         args.backbone = True
         args.transformer = True
         args.output_head = True
+        args.query_sel = True
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -393,6 +498,7 @@ if __name__ == '__main__':
     model = model.eval()
 
     print(model)
+    #exit(0)
 
     dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
