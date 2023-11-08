@@ -153,11 +153,8 @@ def detr_sequential(args, model, dataloader, dev):
 
         torch.cuda.empty_cache()
 
-
     if args.output_head:
         print('Output head inputs')
-        layers = layers.append(model.class_labels_classifier)
-        layers = layers.append(model.bbox_predictor)
 
         label_classifier_idx = 0
         bbox_predictor_idx = 1
@@ -183,8 +180,7 @@ def detr_sequential(args, model, dataloader, dev):
                     cache['i'] += 1
                     raise ValueError
 
-            layers[label_classifier_idx] = CatcherHead(layers[label_classifier_idx])
-            model.class_labels_classifier = layers[label_classifier_idx]
+            model.class_embed[-1] = CatcherHead(model.class_embed[-1])
 
             for batch in dataloader:
                 try:
@@ -192,8 +188,10 @@ def detr_sequential(args, model, dataloader, dev):
                 except ValueError:
                     pass
 
-            model.class_labels_classifier = layers[label_classifier_idx].module
-            layers[label_classifier_idx] = layers[label_classifier_idx].module
+            model.class_embed[-1] = model.class_embed[-1].module
+
+            layers = layers.append(model.class_embed[-1])
+            layers = layers.append(model.bbox_embed[-1])
 
             torch.cuda.empty_cache()
 
@@ -390,7 +388,6 @@ if __name__ == '__main__':
         args.output_head = True
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
     model = build_dino_model(args.root).to(dev)
     model = model.eval()
