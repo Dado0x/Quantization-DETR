@@ -1,8 +1,5 @@
 import argparse
 
-import torch
-from transformers import DeformableDetrForObjectDetection
-
 from datasets.coco import build as build_dataset
 from gptq.gptq import *
 from gptq.modelutils import *
@@ -174,7 +171,6 @@ def detr_sequential(args, model, dataloader, dev):
             label_classifier_idx += 12
             bbox_predictor_idx += 12
 
-        #if not args.transformer:
         cache['i'] = 0
 
         class CatcherHead(nn.Module):
@@ -315,12 +311,13 @@ def detr_sequential(args, model, dataloader, dev):
             if i == backbone_idx:  # Backbone
                 outs[j] = layer(inps[j].to(dev))[0]
             elif i in [label_classifier_idx, bbox_predictor_idx, enc_output_idx, enc_out_class_embed_idx,
-                     enc_out_bbox_embed_idx]:
+                       enc_out_bbox_embed_idx]:
                 layer(inps[j].to(dev))
             elif i == input_projection_idx:  # Input projection
                 for l, feat in enumerate(inps[j]):
                     src, _ = feat.decompose()
                     layer[l](src.to(dev))
+                layer[-1](inps[j][-1].tensors)
             elif i >= decoder_idx:  # Decoder
                 outs[j] = layer(tgt=inps[j].to(dev),
                                 tgt_query_pos=inps_tgt_query_pos[j].to(dev),
@@ -374,12 +371,13 @@ def detr_sequential(args, model, dataloader, dev):
             if i == backbone_idx:  # Backbone
                 outs[j] = layer(inps[j].to(dev))[0]
             elif i in [label_classifier_idx, bbox_predictor_idx, enc_output_idx, enc_out_class_embed_idx,
-                     enc_out_bbox_embed_idx]:
+                       enc_out_bbox_embed_idx]:
                 layer(inps[j].to(dev))
             elif i == input_projection_idx:  # Input projection
                 for l, feat in enumerate(inps[j]):
                     src, _ = feat.decompose()
                     layer[l](src.to(dev))
+                layer[-1](inps[j][-1].tensors)
             elif i >= decoder_idx:  # Decoder
                 outs[j] = layer(tgt=inps[j].to(dev),
                                 tgt_query_pos=inps_tgt_query_pos[j].to(dev),
@@ -401,27 +399,25 @@ def detr_sequential(args, model, dataloader, dev):
         del gptq
         torch.cuda.empty_cache()
 
-        if i == input_projection_idx:
-            if args.transformer:
-                outs = inps_encoder  # Encoder inputs
-            else:
-                outs = inps_output_head  # Output_head inputs
+        if i == encoder_idx - 1:  # Encoder inputs
+            for k in range(args.nsamples):
+                outs[k] = inps_encoder[k].clone()
         if i == decoder_idx - 1:  # Decoder inputs
             for k in range(args.nsamples):
                 outs[k] = inps_tgt[k].clone()
         if i == label_classifier_idx:  # Keep decoder outputs for bbox_predictor
             for k in range(args.nsamples):
                 outs[k] = inps[k].clone()
-        if i == label_classifier_idx - 1:
+        if i == label_classifier_idx - 1: # Label classifier inputs
             for k in range(args.nsamples):
                 outs[k] = inps_output_head[k].clone()
-        if i == enc_output_idx - 1:
+        if i == enc_output_idx - 1: # Query selection inputs
             for k in range(args.nsamples):
                 outs[k] = inps_enc_output[k].clone()
-        if i == enc_out_class_embed_idx - 1:
+        if i == enc_out_class_embed_idx - 1: # Query selection inputs
             for k in range(args.nsamples):
                 outs[k] = inps_enc_out[k].clone()
-        if i == enc_out_class_embed_idx:
+        if i == enc_out_class_embed_idx: # Keep query selection outputs for enc_out_bbox_embed
             for k in range(args.nsamples):
                 outs[k] = inps[k].clone()
 
@@ -498,7 +494,6 @@ if __name__ == '__main__':
     model = model.eval()
 
     print(model)
-    #exit(0)
 
     dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")
     dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))

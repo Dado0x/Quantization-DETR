@@ -33,9 +33,9 @@ if __name__ == '__main__':
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = build_dino_model(args.root).to(dev)
-    #model.load_state_dict(torch.load("C:/Users/chave/PycharmProjects/Quantization-DETR/checkpoint0033_4scale.pth", map_location=dev)['model'])
 
     print(model)
+    print(args.model)
     model.load_state_dict(torch.load(args.model))
     model.eval()
 
