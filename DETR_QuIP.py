@@ -360,7 +360,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed',type=int, default=0, 
                         help='Seed for sampling the calibration data.')
     
-    parser.add_argument('--nsamples', type=int, default=1000,
+    parser.add_argument('--nsamples', type=int, default=100,
                         help='Number of calibration data samples.')
 
     parser.add_argument('--wbits', type=int, default=8, choices=[2, 3, 4, 5, 6, 7, 8],
@@ -381,7 +381,7 @@ if __name__ == '__main__':
     parser.add_argument('--pre_gptqH', action='store_true',
                         help='preprocessing')
     
-    parser.add_argument('--pre_rescale',action='store_true',
+    parser.add_argument('--pre_rescale', action='store_true',
                         help='preprocessing')
     
     parser.add_argument('--pre_proj', action='store_true',
