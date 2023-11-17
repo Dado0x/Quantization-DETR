@@ -202,7 +202,15 @@ def detr_sequential(model, dataloader, dev, args):
         quant_method = {}
         for name in subset:
             print(i, name)
-            if args.quant == 'gptq' or isinstance(subset[name], nn.Conv2d): ## Conv2d is not supported by ldlq
+            if isinstance(subset[name], nn.Conv2d): ## Conv2d is not supported by ldlq
+                quant_method[name] = GPTQ(subset[name])
+                quant_method[name].quantizer = Quantizer()
+                quant_method[name].quantizer.configure(args.wbits,
+                                               perchannel=True,
+                                               sym=False,
+                                               qfn='a',
+                                               mse=False)
+            elif args.quant == 'gptq':
                 quant_method[name] = GPTQ(subset[name])
                 quant_method[name].quantizer = Quantizer()
                 quant_method[name].quantizer.configure(args.wbits,
@@ -258,7 +266,11 @@ def detr_sequential(model, dataloader, dev, args):
             print(i, name)
             print('Quantizing ...')
             if isinstance(subset[name], nn.Conv2d):
-                quant_method[name].preproc(preproc_gptqH=True, percdamp=args.percdamp)
+                quant_method[name].preproc(preproc_gptqH=True,
+                                           percdamp=args.percdamp,
+                                           preproc_rescale=False,
+                                           preproc_proj=False,
+                                           preproc_proj_extra=0)
             else:
                 quant_method[name].preproc(preproc_gptqH=args.pre_gptqH,
                                            percdamp=args.percdamp,
@@ -342,6 +354,8 @@ def detr_sequential(model, dataloader, dev, args):
             f.write(f"{k}, {v:.5f}\n")
 
     torch.save(model.state_dict(), args.root+name+".bin")
+
+    print("Model name : ", name)
     return quantizers, errors
 
 

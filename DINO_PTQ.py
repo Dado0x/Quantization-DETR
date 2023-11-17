@@ -439,6 +439,8 @@ def detr_sequential(args, model, dataloader, dev):
             f.write(f"{k}, {v:.5f}\n")
 
     torch.save(model.state_dict(), args.root + name + ".bin")
+
+    print("Model name : ", name)
     return quantizers
 
 
