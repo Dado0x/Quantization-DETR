@@ -7,12 +7,19 @@ from dino import build_dino
 from util.slconfig import SLConfig
 
 
-def build_dino_model(root):
+def build_dino_model(root, backbone='resnet50'):
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    if backbone == 'resnet50':
+        conf = "DINO_4scale.py"
+    elif backbone == 'swin-L':
+        conf = "DINO_4scale_swin.py"
+    else:
+        raise Exception("Unknown backbone")
+
     args = argparse.Namespace(coco_path=root + "coco",
-                              config_file=root + "dino/DINO_4scale.py",
+                              config_file=root + "dino/" + conf,
                               device=dev)
 
     cfg = SLConfig.fromfile(args.config_file)
@@ -24,7 +31,12 @@ def build_dino_model(root):
             setattr(args, k, v)
 
     model, criterion, postprocessors = build_dino(args)
-    model.load_state_dict(torch.load(root + "checkpoint0033_4scale.pth", map_location=dev)['model'])
+    if backbone == 'resnet50':
+        model.load_state_dict(torch.load(root + "checkpoint0033_4scale.pth", map_location=dev)['model'])
+    elif backbone == 'swin-L':
+        model.load_state_dict(torch.load(root + "checkpoint0029_4scale_swin.pth", map_location=dev)['model'])
+    else:
+        raise Exception("Unknown backbone")
 
     args.decoder_sa_type = 'sa_detr'
 
