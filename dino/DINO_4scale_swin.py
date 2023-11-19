@@ -97,12 +97,16 @@ dec_pred_class_embed_share = True
 # for dn
 use_dn = True
 dn_number = 100
-dn_box_noise_scale = 0.4
+dn_box_noise_scale = 1.0
 dn_label_noise_ratio = 0.5
 embed_init_tgt = True
 dn_labelbook_size = 91
 
 match_unstable_error = True
+
+dn_scalar = 100
+dn_label_coef = 1.0
+dn_bbox_coef = 1.0
 
 # for ema
 use_ema = False

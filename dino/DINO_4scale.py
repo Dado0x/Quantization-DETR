@@ -102,10 +102,9 @@ dn_label_noise_ratio = 0.5
 embed_init_tgt = True
 dn_labelbook_size = 91
 
-dn_bbox_coef=1.0
-dn_label_coef=1.0
-embed_init_tgt=True
-dn_scalar=100
+dn_bbox_coef = 1.0
+dn_label_coef = 1.0
+dn_scalar = 100
 
 
 match_unstable_error = True
