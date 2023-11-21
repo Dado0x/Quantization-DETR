@@ -15,11 +15,15 @@ class Balance(QuantMethod):
         self.npasses = npasses
         self.unbiased = unbiased
         self.old_w = self.layer.weight.data.clone()
+        if isinstance(self.layer, nn.Conv2d):
+            self.old_w = self.old_w.flatten(1)
 
     def fasterquant(self, lazy_batch=False):
         w = self.layer.weight.data.clone()
+        #if isinstance(self.layer, nn.Conv2d):
+        #    raise NotImplementedError()
         if isinstance(self.layer, nn.Conv2d):
-            raise NotImplementedError()
+            w = w.flatten(1)
         if isinstance(self.layer, transformers.Conv1D):
             raise NotImplementedError()
         tick = time.time()
@@ -39,7 +43,7 @@ class Balance(QuantMethod):
             qmethod=self.qmethod,
             lazy_batch=lazy_batch
         )
-        self.layer.weight.data = quant_w
+        self.layer.weight.data = quant_w.reshape(self.layer.weight.shape)
         self.postproc()
         # print('time %.2f' % (time.time() - tick))
         self.time = time.time() - tick

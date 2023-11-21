@@ -133,6 +133,8 @@ class QuantMethod:
         self.preproc_proj    = preproc_proj
         if preproc_rescale:
             w = self.layer.weight.data.clone().to(torch.float32)
+            if isinstance(self.layer, nn.Conv2d):
+                w = w.flatten(1)
             H = self.H.to(torch.float32)
             if H.abs().max() != 0.0: ## Fix for zero H
                 H /= H.abs().max()
@@ -148,10 +150,12 @@ class QuantMethod:
             w = w.to(torch.float32)
             scaleWH = scaleWH.to(torch.float32)
             self.scaleWH = scaleWH.cpu()
-            self.layer.weight.data = w.to(self.layer.weight.data.dtype)
+            self.layer.weight.data = w.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
             self.H.data = H.to(self.H.data.dtype)
         if preproc_proj:
             w = self.layer.weight.data.clone().to(torch.float32)
+            if isinstance(self.layer, nn.Conv2d):
+                w = w.flatten(1)
             H = self.H.data.clone().to(torch.float32)
             # 
             if preproc_proj_extra == 0:
@@ -172,7 +176,7 @@ class QuantMethod:
             H = V @ H @ V.T
             self.projU = U.cpu()
             self.projV = V.cpu()
-            self.layer.weight.data = w.to(self.layer.weight.data.dtype)
+            self.layer.weight.data = w.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
             self.H.data = H.to(self.H.data.dtype)
         # H modification from gptq
         if self.preproc_gptqH:
@@ -188,7 +192,7 @@ class QuantMethod:
             H[diag, diag] += damp
             if isinstance(self.layer, nn.Conv2d):
                 w = w.reshape(self.layer.weight.shape)
-            self.layer.weight.data = w.to(self.layer.weight.data.dtype)
+            self.layer.weight.data = w.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
             self.H.data = H.to(self.H.data.dtype)
         self.preproc_done = True
     
@@ -196,21 +200,25 @@ class QuantMethod:
         assert self.preproc_done is True
         if self.preproc_proj:
             w = self.layer.weight.data.clone().to(torch.float32)
+            if isinstance(self.layer, nn.Conv2d):
+                w = w.flatten(1)
             H = self.H.data.clone().to(torch.float32)
             U = self.projU.to(w.device)
             V = self.projV.to(w.device)
             w = (U.T @ w @ V)
             H = (V.T @ H @ V)
-            self.layer.weight.data = w.to(self.layer.weight.data.dtype)
+            self.layer.weight.data = w.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
             self.H.data = H.to(self.H.data.dtype)
         if self.preproc_rescale:
             w = self.layer.weight.data.clone()
+            if isinstance(self.layer, nn.Conv2d):
+                w = w.flatten(1)
             H = self.H.data.clone()
             scaleWH = self.scaleWH.to(w.device)
             w = w / scaleWH[None,:]
             H = H * scaleWH[:,None]
             H = H * scaleWH[None,:]
-            self.layer.weight.data = w.to(self.layer.weight.data.dtype)
+            self.layer.weight.data = w.reshape(self.layer.weight.shape).to(self.layer.weight.data.dtype)
             self.H.data = H.to(self.H.data.dtype)
 
     def free(self):
