@@ -299,15 +299,15 @@ def detr_sequential(args, model, dataloader, dev):
         quant_method = {}
         for name in subset:
             print(i, name)
-            if isinstance(subset[name], nn.Conv2d): ## Conv2d is not supported by ldlq
-                quant_method[name] = GPTQ(subset[name])
-                quant_method[name].quantizer = Quantizer()
-                quant_method[name].quantizer.configure(args.wbits,
-                                               perchannel=True,
-                                               sym=False,
-                                               qfn='a',
-                                               mse=False)
-            elif args.quant == 'gptq':
+            # if isinstance(subset[name], nn.Conv2d): ## Conv2d is not supported by ldlq
+            #     quant_method[name] = GPTQ(subset[name])
+            #     quant_method[name].quantizer = Quantizer()
+            #     quant_method[name].quantizer.configure(args.wbits,
+            #                                    perchannel=True,
+            #                                    sym=False,
+            #                                    qfn='a',
+            #                                    mse=False)
+            if args.quant == 'gptq':
                 quant_method[name] = GPTQ(subset[name])
                 quant_method[name].quantizer = Quantizer()
                 quant_method[name].quantizer.configure(args.wbits,
@@ -381,22 +381,22 @@ def detr_sequential(args, model, dataloader, dev):
         for name in subset:
             print(i, name)
             print('Quantizing ...')
-            if isinstance(subset[name], nn.Conv2d):
-                quant_method[name].preproc(preproc_gptqH=True,
-                                           percdamp=args.percdamp,
-                                           preproc_rescale=False,
-                                           preproc_proj=False,
-                                           preproc_proj_extra=0)
-            else:
-                quant_method[name].preproc(preproc_gptqH=args.pre_gptqH,
-                                           percdamp=args.percdamp,
-                                           preproc_rescale=args.pre_rescale,
-                                           preproc_proj=args.pre_proj,
-                                           preproc_proj_extra=args.pre_proj_extra)
+            # if isinstance(subset[name], nn.Conv2d):
+            #     quant_method[name].preproc(preproc_gptqH=True,
+            #                                percdamp=args.percdamp,
+            #                                preproc_rescale=False,
+            #                                preproc_proj=False,
+            #                                preproc_proj_extra=0)
+            # else:
+            quant_method[name].preproc(preproc_gptqH=args.pre_gptqH,
+                                       percdamp=args.percdamp,
+                                       preproc_rescale=args.pre_rescale,
+                                       preproc_proj=args.pre_proj,
+                                       preproc_proj_extra=args.pre_proj_extra)
 
-            if args.quant == 'gptq' or isinstance(subset[name], nn.Conv2d):
+            if args.quant == 'gptq':# or isinstance(subset[name], nn.Conv2d):
                 quant_method[name].fasterquant(groupsize=args.groupsize)
-            elif args.quant in ['allbal','ldlq','ldlqRG','ldlbal_admm']:
+            if args.quant in ['allbal','ldlq','ldlqRG','ldlbal_admm']:
                 quant_method[name].fasterquant(lazy_batch=args.lazy_batch)
             elif args.quant == 'near':
                 quant_method[name].fasterquant()
