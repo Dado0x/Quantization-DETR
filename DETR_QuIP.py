@@ -348,12 +348,12 @@ def detr_sequential(model, dataloader, dev, args):
     print(f'Total quant time: {sum(times):.2f}s')
     name = f"detr_{args.quant}{'_IP' if args.incoh_processing else ''}{'_unbiased' if args.unbiased else ''}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}_{args.nsamples}samples_{args.wbits}bits"
 
-    with open(args.root+name+".csv", 'w') as f:
+    with open(args.root + "errors/" + name + ".csv", 'w') as f:
         f.write("Layer, Error\n")
         for k, v in errors.items():
             f.write(f"{k}, {v:.5f}\n")
 
-    torch.save(model.state_dict(), args.root+name+".bin")
+    torch.save(model.state_dict(), args.root+"model/"+name+".bin")
 
     print("Model name : ", name)
     return quantizers, errors
