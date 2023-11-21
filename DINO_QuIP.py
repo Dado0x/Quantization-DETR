@@ -490,7 +490,7 @@ def detr_sequential(args, model, dataloader, dev):
         print(k, v)
     print("------------------")
 
-    name = f"dino_{args.quant}{'_IP' if args.incoh_processing else ''}{'_unbiased' if args.unbiased else ''}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}{'_query_selection' if args.query_sel else ''}_{args.nsamples}samples_{args.wbits}bits"
+    name = f"dino-{args.backbone_model}_{args.quant}{'_IP' if args.incoh_processing else ''}{'_unbiased' if args.unbiased else ''}{'_transformer' if args.transformer else ''}{'_backbone' if args.backbone else ''}{'_output_head' if args.output_head else ''}{'_query_selection' if args.query_sel else ''}_{args.nsamples}samples_{args.wbits}bits"
 
     with open(args.root + name + ".csv", 'w') as f:
         f.write("Layer, Error\n")
@@ -517,6 +517,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--query_sel', action='store_true',
                         help='Whether to quantize the query selection. Quantize by default.')
+
+    parser.add_argument('--backbone_model', type=str, default='swin-L', choices=['swin-L', 'resnet50'],
+                        help='Backbone model to use. Default: swin-L')
 
     parser.add_argument('--seed', type=int, default=0,
                         help='Seed for sampling the calibration data.')
@@ -595,13 +598,12 @@ if __name__ == '__main__':
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = build_dino_model(args.root).to(dev)
+    model = build_dino_model(args.root, backbone=args.backbone_model).to(dev)
     model = model.eval()
 
-    print(model)
-
-    dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")
-    dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
+    dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")  # Can replace 'val' with 'train' to sample training data
+    indices = torch.randperm(len(dataset_val), generator=torch.Generator().manual_seed(args.seed))[:args.nsamples]
+    dataset_val = torch.utils.data.Subset(dataset_val, indices)
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)
 

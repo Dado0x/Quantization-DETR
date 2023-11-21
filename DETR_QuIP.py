@@ -449,8 +449,9 @@ if __name__ == '__main__':
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(dev)
     model = model.eval()
 
-    dataset_val = build_dataset(image_set='val', coco_path=args.root+"coco")
-    dataset_val = torch.utils.data.Subset(dataset_val, torch.arange(0, args.nsamples))
+    dataset_val = build_dataset(image_set='val', coco_path=args.root + "coco")  # Can replace 'val' with 'train' to sample training data
+    indices = torch.randperm(len(dataset_val), generator=torch.Generator().manual_seed(args.seed))[:args.nsamples]
+    dataset_val = torch.utils.data.Subset(dataset_val, indices)
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)
 
