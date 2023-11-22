@@ -49,6 +49,7 @@ if __name__ == '__main__':
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", revision="no_timm").to(device)
 
     print(model)
+    print(args.model)
     model.load_state_dict(torch.load(args.model))
     model.eval()
 

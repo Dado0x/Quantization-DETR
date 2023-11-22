@@ -32,7 +32,12 @@ if __name__ == '__main__':
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = build_dino_model(args.root).to(dev)
+    if "swin-L" in args.model:
+        backbone_model = "swin-L"
+    else:
+        backbone_model = "resnet50"
+
+    model = build_dino_model(args.root, backbone=backbone_model).to(dev)
 
     print(model)
     print(args.model)
