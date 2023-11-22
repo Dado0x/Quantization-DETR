@@ -183,7 +183,7 @@ def detr_sequential(args, model, dataloader, dev):
                 cache['i'] += 1
                 raise ValueError
 
-        model.class_embed[-1] = CatcherHead(model.class_embed[-1])
+        model.class_embed[0] = CatcherHead(model.class_embed[0])
 
         for batch in dataloader:
             try:
@@ -191,10 +191,10 @@ def detr_sequential(args, model, dataloader, dev):
             except ValueError:
                 pass
 
-        model.class_embed[-1] = model.class_embed[-1].module
+        model.class_embed[0] = model.class_embed[0].module
 
-        layers = layers.append(model.class_embed[-1])
-        layers = layers.append(model.bbox_embed[-1])
+        layers = layers.append(model.class_embed[0])
+        layers = layers.append(model.bbox_embed[0])
 
         torch.cuda.empty_cache()
 
