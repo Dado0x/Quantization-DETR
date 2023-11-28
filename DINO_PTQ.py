@@ -96,7 +96,6 @@ def detr_sequential(args, model, dataloader, dev):
                 inps_tgt_query_pos[cache['i']] = kwargs['tgt_query_pos'].cpu()
                 inps_tgt_query_sine_embed[cache['i']] = kwargs['tgt_query_sine_embed'].cpu()
                 inps_tgt_reference_points[cache['i']] = kwargs['tgt_reference_points'].cpu()
-                inps_memory[cache['i']] = kwargs['memory'].cpu()
                 cache['i'] += 1
                 raise ValueError
 
@@ -404,6 +403,7 @@ def detr_sequential(args, model, dataloader, dev):
                 outs[k] = inps_encoder[k].clone()
         if i == decoder_idx - 1:  # Decoder inputs
             for k in range(args.nsamples):
+                inps_memory[k] = outs[k].permute(1, 0, 2).clone()
                 outs[k] = inps_tgt[k].clone()
         if i == label_classifier_idx:  # Keep decoder outputs for bbox_predictor
             for k in range(args.nsamples):
