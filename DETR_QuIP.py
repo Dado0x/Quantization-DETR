@@ -28,7 +28,7 @@ def detr_sequential(model, dataloader, dev, args):
     # Input encoder
     inps_encoder = [None] * args.nsamples 
     inps_attention_mask = [None] * args.nsamples
-    inps_position_embeddings = [None] * args.nsamples
+    inps_object_queries = [None] * args.nsamples
 
     # Input backbone
     inps_pixel = [None] * args.nsamples
@@ -57,7 +57,7 @@ def detr_sequential(model, dataloader, dev, args):
                     raise ValueError
                 inps_encoder[cache['i']] = inp.cpu()
                 inps_attention_mask[cache['i']] = attention_mask.cpu()
-                inps_position_embeddings[cache['i']] = kwargs['position_embeddings'].cpu()
+                inps_object_queries[cache['i']] = kwargs['object_queries'].cpu()
                 cache['i'] += 1
                 raise ValueError
 
@@ -253,9 +253,12 @@ def detr_sequential(model, dataloader, dev, args):
             elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
                 outs[j] = layer(inps[j].to(dev))
             elif i >= decoder_idx: # Decoder
-                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None, position_embeddings=inps_position_embeddings[j].to(dev), query_position_embeddings=cache['query_position_embeddings'])[0]
+                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev),
+                                attention_mask=None, object_queries=inps_object_queries[j].to(dev),
+                                query_position_embeddings=cache['query_position_embeddings'])[0]
             else: # Encoder
-                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev), position_embeddings=inps_position_embeddings[j].to(dev))[0]
+                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev),
+                                object_queries=inps_object_queries[j].to(dev))[0]
         for h in handles:
             h.remove()
 
@@ -310,9 +313,12 @@ def detr_sequential(model, dataloader, dev, args):
             elif i == input_projection_idx or i == label_classifier_idx or i == bbox_predictor_idx:  # Input projection
                 outs[j] = layer(inps[j].to(dev))
             elif i >= decoder_idx:  # Decoder
-                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev), attention_mask=None, position_embeddings=inps_position_embeddings[j].to(dev), query_position_embeddings=cache['query_position_embeddings'])[0]
+                outs[j] = layer(inps[j].to(dev), encoder_hidden_states=inps_encoder_hidden_states[j].to(dev),
+                                attention_mask=None, object_queries=inps_object_queries[j].to(dev),
+                                query_position_embeddings=cache['query_position_embeddings'])[0]
             else: # Encoder
-                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev), position_embeddings=inps_position_embeddings[j].to(dev))[0]
+                outs[j] = layer(inps[j].to(dev), attention_mask=inps_attention_mask[j].to(dev),
+                                object_queries=inps_object_queries[j].to(dev))[0]
 
         layers[i] = layer.cpu()
         del layer
