@@ -607,4 +607,7 @@ if __name__ == '__main__':
     sampler_val = torch.utils.data.SequentialSampler(dataset_val)
     dataloader = torch.utils.data.DataLoader(dataset_val, 1, sampler=sampler_val, drop_last=False)
 
+    np.random.seed(args.seed)
+    torch.random.manual_seed(args.seed)
+
     detr_sequential(args, model, dataloader, dev)
